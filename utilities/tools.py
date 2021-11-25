@@ -1,4 +1,6 @@
 from __future__ import division
+
+import cv2
 import numpy as np
 import os
 import math
@@ -66,3 +68,15 @@ def randomisation(c, n):
 def makefolder(path):
     if not os.path.exists(path):
         os.mkdir(path)
+
+
+def quick_resize(data, scale, og_width, og_height):
+    width = int(og_width * scale)
+    height = int(og_height * scale)
+    dim = (width, height)
+    resized = cv2.resize(
+        data,
+        dim,
+        interpolation=cv2.INTER_AREA
+    )
+    return resized

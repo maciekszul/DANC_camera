@@ -1,156 +1,206 @@
+import json
 import sys
 
 import numpy as np
-from ximea import xiapi
+from cv2 import aruco
+
 import cv2
 import pickle
 import matplotlib.pyplot as plt
-from utilities.calib_tools import triangulate_points, locate
 
-# Rows and columns in chess board
-cbcol = 9
-cbrow = 6
-
-# Chess board coordinates
-objp = np.zeros((cbrow * cbcol, 3), np.float32)
-objp[:, :2] = np.mgrid[0:cbcol, 0:cbrow].T.reshape(-1, 2)
+from camera_io import init_camera_sources, init_file_sources, shtr_spd
+from utilities.calib_tools import create_charuco_boards, plot_chessboard_3d, project_chessboard, locate
+from utilities.tools import quick_resize
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
 stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 1e-5)
 intrinsic_flags = cv2.CALIB_RATIONAL_MODEL + cv2.CALIB_FIX_PRINCIPAL_POINT
+intrinsic_term_crit = (cv2.TERM_CRITERIA_EPS & cv2.TERM_CRITERIA_COUNT, 10000, 1e-9)
+
+# Initialize ArUco Tracking
+detect_parameters = aruco.DetectorParameters_create()
+detect_parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
 
 fps = 60.0
-shutter = int((1 / fps) * 1e+6) - 100
+shutter = shtr_spd(fps)
 gain = 5
 f_size = (1280, 1024)
 
-cam_sns = ["06955451","32052251","39050251","32050651"]
 
-def camera_init(sn, framerate, shutter, gain):
-
-    cam = xiapi.Camera()
-    cam.open_device_by_SN(sn)  # put a serial number of the camera
-    cam.set_exposure(shutter)
-    cam.set_gain(gain)
-    cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE")
-    cam.set_framerate(framerate)
-    cam.set_imgdataformat("XI_RGB32")
-    cam.enable_auto_wb()
-    img = xiapi.Image()
-
-    return cam, img	
-
-
-def collect_sba_data(cams, imgs, intrinsic_params, extrinsic_params):
+def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     """
     Collect data for sparse bundle adjustment
-    :param cam_sns: SN of each camera
-    :param cams:  list of camera objects
-    :param imgs: image object for each camera
+    :param parameters: Acquisition parameters
+    :param cams: list of camera objects
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :param extrinsic_params: extrinsic calibration parameters for each camera
     """
+
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, 'sba')
+
     # Initialize array
     cam_list = {}
-    for sn in cam_sns:
-        cam_list[sn] = []
+    for cam in cams:
+        cam_list[cam.sn] = []
     points_3d = []
     point_3d_indices = []
     points_2d = []
     camera_indices = []
 
-    print('Run SBA (y/n)?')
+    board1, board2 = create_charuco_boards()
+    axis_size = 0.025  # This value is in meters
+
+    print('Accept SBA data (y/n)?')
 
     # Get corresponding points between images
     point_idx_counter = 0
-    points_per_image = cbcol * cbrow
 
     # Acquire enough good frames
     while True:
-        # Whether or not chessboard is visible in each camera
-        visible_cams = np.zeros((len(cam_sns)))
-
         # Frames for each camera
         cam_datas = []
         vcam_datas = []
         # Chessboard corners for each camera
         cam_corners = {}
+        cam_corner_ids = {}
 
         # Go through each camera
-        for cam_idx, (sn, cam, img) in enumerate(zip(cam_sns, cams, imgs)):
+        video_finished = True
+        for cam_idx, cam in enumerate(cams):
 
             # Get image from camera
-            cam.get_image(img)
-            cam_data = img.get_image_data_numpy()
+            cam_data = cam.next_frame()
+            if cam_data is not None:
+                video_finished = False
+            else:
+                break
             cam_datas.append(cam_data)
-            vcam_data = np.copy(cam_data)
+            vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
+
+            k = intrinsic_params[cam.sn]['k']
+            d = intrinsic_params[cam.sn]['d']
 
             # Convert to greyscale for chess board detection
             gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
 
             # Find the chess board corners - fast checking
-            ret, corners = cv2.findChessboardCorners(gray, (cbcol, cbrow), None, flags=cv2.CALIB_CB_FAST_CHECK)
+            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board1.dictionary,
+                                                                      parameters=detect_parameters)
+            if len(marker_corners):
+                cam_board = None
+                if len(np.where(board1.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
+                    cam_board = board1
+                elif len(np.where(board2.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
+                    cam_board = board2
 
-            # If found in cameras
-            if ret:
-                # Refine image points
-                corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), subcorner_term_crit)
+                [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
+                                                                                          gray, cam_board)
+                if ret > 0:
+                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                                           subcorner_term_crit)
 
-                # Visual feedback
-                vcam_data = cv2.drawChessboardCorners(vcam_data, (cbcol, cbrow), corners, ret)
-                vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0),
-                                          5)
-                visible_cams[cam_idx] = 1
-            cam_corners[sn] = corners
+                    vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                    vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
+                    vcam_data = cv2.aruco.drawDetectedCornersCharuco(vcam_data.copy(), charuco_corners_sub,
+                                                                     charuco_ids)
+
+                    if ret > 20:
+
+                        # Estimate the posture of the charuco board, which is a construction of 3D space based on the
+                        # 2D video
+                        pose, rvec, tvec = aruco.estimatePoseCharucoBoard(
+                            charucoCorners=charuco_corners_sub,
+                            charucoIds=charuco_ids,
+                            board=cam_board,
+                            cameraMatrix=k,
+                            distCoeffs=d,
+                            rvec=None,
+                            tvec=None
+                        )
+                        if pose:
+                            vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, axis_size)
+
+                            pts = []
+                            ids = []
+                            for board_id in range(63):
+                                # board2_id=board2_matching_ids[board1_id]
+                                # if (len(np.where(charucoIds1==id_idx)[0]) and len(np.where(charucoIds2==board2_id)[0])):
+                                # if cam1_board_id==1:
+                                #    cam1_corner_id=board1_id
+                                # elif cam1_board_id==2:
+                                #    cam1_corner_id=board2_id
+
+                                if len(np.where(charuco_ids == board_id)[0]):
+                                    c_idx = np.where(charuco_ids == board_id)[0][0]
+                                    pts.append(charuco_corners_sub[c_idx, :, :])
+                                    ids.append(board_id)
+                            cam_corners[cam.sn] = pts
+                            cam_corner_ids[cam.sn] = np.array(ids)
 
             # Num frames
-            vcam_data = cv2.putText(vcam_data, '%d frames' % len(cam_list[sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2,
-                                    (0, 255, 0), 2)
+            vcam_data = cv2.putText(vcam_data, '%d frames' % len(cam_list[cam.sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                    2, (0, 255, 0), 2)
 
             # Resize for display
-            width = int(f_size[0] * .5)
-            height = int(f_size[1] * .5)
-            dim = (width, height)
-            resized = cv2.resize(vcam_data, dim, interpolation=cv2.INTER_AREA)
+            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
             vcam_datas.append(resized)
 
+            cam_list[cam.sn].append(cam_datas[cam_idx][:, :, :3])
+
         # If chessboard visible in more than one camera
-        if np.sum(visible_cams) > 1:
+        for board_id in range(63):
+            # board2_id=board2_matching_ids[board1_id]
+            # if (len(np.where(charucoIds1==id_idx)[0]) and len(np.where(charucoIds2==board2_id)[0])):
+            # if cam1_board_id==1:
+            #    cam1_corner_id=board1_id
+            # elif cam1_board_id==2:
+            #    cam1_corner_id=board2_id
+            visible_cams = []
+            for cam in cams:
+                if cam.sn in cam_corner_ids and len(np.where(cam_corner_ids[cam.sn] == board_id)[0]):
+                    visible_cams.append(cam.sn)
 
-            # Which cameras to use for triangulation
-            triangulation_cams = []
+            if len(visible_cams) > 1:
+                # Add 3d and 3d points to list
+                c = {}
+                for cam_idx, cam in enumerate(cams):
+                    if cam.sn in visible_cams:
+                        c_idx = np.where(cam_corner_ids[cam.sn] == board_id)[0][0]
+                        points_2d.append(cam_corners[cam.sn][c_idx])
+                        point_3d_indices.append(point_idx_counter)
+                        camera_indices.append(cam_idx)
+                        c[cam.sn] = cam_corners[cam.sn][c_idx]
 
-            # Add 3d and 3d points to list
-            for cam_idx, sn in enumerate(cam_sns):
-                new_point_3d_indices = range(point_idx_counter, point_idx_counter + points_per_image)
-                if visible_cams[cam_idx] > 0:
-                    triangulation_cams.append(sn)
-                    points_2d.extend(np.array(cam_corners[sn]).reshape(points_per_image, 2))
-                    point_3d_indices.extend(new_point_3d_indices)
-                    camera_indices.extend([cam_idx] * points_per_image)
-                    cam_list[sn].append(cam_datas[cam_idx][:, :, :3])
+                point_3d_est, paires_used = locate(visible_cams, c, intrinsic_params, extrinsic_params)
 
-            # Use the first two cameras to get the initial estimate
-            point_3d_est = triangulate_points(triangulation_cams[0], triangulation_cams[1], cam_corners,
-                                              intrinsic_params, extrinsic_params)
+                points_3d.append(point_3d_est)
+                point_idx_counter += 1
 
-            points_3d.extend(point_3d_est)
-            point_idx_counter += points_per_image
+        if video_finished:
+            break
 
         # Show camera images
-        data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[3]])])
+        if len(vcam_datas) == 1:
+            data = vcam_datas[0]
+        elif len(vcam_datas) == 2:
+            data = np.hstack([vcam_datas[0], vcam_datas[1]])
+        elif len(vcam_datas) == 3:
+            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[2]])])
+        else:
+            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[3]])])
         cv2.imshow("cam", data)
-        k = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1) & 0xFF
 
         # Quit if enough frames
-        if k == ord('y'):
+        if key == ord('y'):
             break
         # Start over
-        elif k == ord('n'):
+        elif key == ord('n'):
             # Initialize array
             cam_list = {}
-            for sn in cam_sns:
-                cam_list[sn] = []
+            for cam in cams:
+                cam_list[cam.sn] = []
             points_3d = []
             point_3d_indices = []
             points_2d = []
@@ -158,8 +208,8 @@ def collect_sba_data(cams, imgs, intrinsic_params, extrinsic_params):
             point_idx_counter = 0
 
     # Convert to numpy arrays
-    points_2d = np.array(points_2d, dtype=np.float32)
-    points_3d = np.array(points_3d, dtype=np.float32)
+    points_2d = np.squeeze(np.array(points_2d, dtype=np.float32))
+    points_3d = np.squeeze(np.array(points_3d, dtype=np.float32))
     point_3d_indices = np.array(point_3d_indices, dtype=np.int)
     camera_indices = np.array(camera_indices, dtype=np.int)
 
@@ -177,12 +227,12 @@ def collect_sba_data(cams, imgs, intrinsic_params, extrinsic_params):
         ),
     )
 
-    # Save videos with frames used for sparse bundle adjustment    
-    for sn in cam_sns:
-        vid_list = cam_list[sn]
+    # Save videos with frames used for sparse bundle adjustment
+    for cam in cams:
+        vid_list = cam_list[cam.sn]
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         cam_vid = cv2.VideoWriter(
-            "sba_cam_{}.avi".format(sn),
+            "sba_cam_{}.avi".format(cam.sn),
             fourcc,
             float(fps),
             f_size
@@ -191,48 +241,54 @@ def collect_sba_data(cams, imgs, intrinsic_params, extrinsic_params):
         cam_vid.release()
 
 
-def run_extrinsic_calibration(cams, imgs, intrinsic_params):
+def run_extrinsic_calibration(parameters, cams, intrinsic_params):
     """
     Run extrinsic calibration for each pair of cameras
-    :param cam_sns: list of camera SNs
+    :param parameters: Acquisition parameters
     :param cams: list of camera objects
-    :param imgs: image object for each camera
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :return: extrinsic calibration parameters for each camera
     """
 
     # Rotation matrix for first camera - all others are relative to it
-    extrinsic_params = {cam_sns[0]: {}}
-    extrinsic_params[cam_sns[0]]['r'] = np.array([[1, 0, 0],
-                                                  [0, 0, -1],
-                                                  [0, 1, 0]], dtype=np.float32)
-    extrinsic_params[cam_sns[0]]['t'] = np.array([[0, 0, 0]], dtype=np.float32).T
+    extrinsic_params = {
+        parameters['cam_sns'][0]: {
+            'r': np.array([[1, 0, 0],
+                           [0, 0, -1],
+                           [0, 1, 0]], dtype=np.float32),
+            't': np.array([[0, 0, 0]], dtype=np.float32).T
+        }
+    }
 
     # Go through each camera
-    for cam1_idx in range(len(cams)):
-        cam1_sn = cam_sns[cam1_idx]
-        cam1 = cams[cam1_idx]
-        img1 = imgs[cam1_idx]
+    for cam1_idx in range(len(parameters['cam_sns'])):
+        cam1_sn = parameters['cam_sns'][cam1_idx]
 
         # For every other camera (except pairs already calibrated)
-        for cam2_idx in range(cam1_idx + 1, len(cams)):
-            cam2_sn = cam_sns[cam2_idx]
-            cam2 = cams[cam2_idx]
-            img2 = imgs[cam2_idx]
+        for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
+            cam2_sn = parameters['cam_sns'][cam2_idx]
+
+            if parameters['type'] == 'offline':
+                cams = init_file_sources(parameters, 'extrinsic_%s-%s' % (cam1_sn, cam2_sn))
+                cam1 = cams[0]
+                cam2 = cams[1]
+            else:
+                cam1 = cams[cam1_idx]
+                cam2 = cams[cam2_idx]
 
             # Calibrate pair
             print("Computing stereo calibration for cam %d and %d" % (cam1_idx, cam2_idx))
-            rms, r, t, cam_list = extrinsic_cam_calibration(cam1_sn, cam1, img1, cam2_sn, cam2, img2, intrinsic_params,
-                                                            extrinsic_params)
+            rms, r, t, cam_list = extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsic_params)
             print(f"{rms:.5f} pixels")
 
             # https://en.wikipedia.org/wiki/Camera_resectioning#Extrinsic_parameters
             # T is the world origin position in the camera coordinates.
             # The world position of the camera is C = -(R^-1)@T.
             # Similarly, the rotation of the camera in world coordinates is given by R^-1
-            extrinsic_params[cam_sns[cam2_idx]] = {}
-            extrinsic_params[cam_sns[cam2_idx]]['r'] = r @ extrinsic_params[cam_sns[cam1_idx]]['r']
-            extrinsic_params[cam_sns[cam2_idx]]['t'] = r @ extrinsic_params[cam_sns[cam1_idx]]['t'] + t
+            extrinsic_params[cam2_sn] = {
+                'r': r @ extrinsic_params[cam1_sn]['r'],
+                't': r @ extrinsic_params[cam1_sn]['t'] + t
+            }
 
             # Save frames used to calibrate for cam1
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
@@ -267,29 +323,31 @@ def run_extrinsic_calibration(cams, imgs, intrinsic_params):
     return extrinsic_params
 
 
-def extrinsic_cam_calibration(sn1, cam1, img1, sn2, cam2, img2, intrinsic_params, extrinsic_params):
+def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsic_params):
     """
     Run extrinsic calibration for one pair of cameras
-    :param sn1: SN for camera 1
+    :param parameters: Acquisition parameters
     :param cam1: camera 1 object
-    :param img1: image object for camera 1
-    :param sn2: SN for camera 2
     :param cam2: camera 2 object
-    :param img2: image object for camera 2
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :param extrinsic_params: extrinsic calibration parameters for each camera
     :return: tuple: RMS, rotation matrix, translation matrix, list of frames for each camera
     """
 
     # Initialize
-    cam_list = {sn1: [], sn2: []}
+    cam_list = {cam1.sn: [], cam2.sn: []}
     objpoints = []
-    imgpoints = {sn1: [], sn2: []}
-    rms=0
+    imgpoints = {cam1.sn: [], cam2.sn: []}
     r = np.array([[1, 0, 0],
                   [0, 0, -1],
                   [0, 1, 0]], dtype=np.float32)
     t = np.array([[0, 0, 0]], dtype=np.float32).T
+
+    axis_size = 0.025  # This value is in meters
+
+    board1, board2 = create_charuco_boards()
+    # board2_matching_ids=np.reshape(np.flip(np.reshape(np.array(range(63)),(7,9)),0),(63,))
+    # board2_matching_ids=np.array(range(63))
 
     # Stop when RMS lower than threshold and greater than min frames collected
     rms_threshold = 1.0
@@ -298,199 +356,319 @@ def extrinsic_cam_calibration(sn1, cam1, img1, sn2, cam2, img2, intrinsic_params
     rmss = []
 
     # Get intrinsic parameters for each camera
-    k1 = intrinsic_params[sn1]['k']
-    d1 = intrinsic_params[sn1]['d']
-    k2 = intrinsic_params[sn2]['k']
-    d2 = intrinsic_params[sn2]['d']
+    k1 = intrinsic_params[cam1.sn]['k']
+    d1 = intrinsic_params[cam1.sn]['d']
+    k2 = intrinsic_params[cam2.sn]['k']
+    d2 = intrinsic_params[cam2.sn]['d']
 
-    print('Accept extrinsic calibration (y/n)?')
+    if parameters['type'] == 'online':
+        print('Accept extrinsic calibration (y/n)?')
 
     # Plot 3D triangulation and RMSE
-    fig = plt.figure('extrinsic - %s - %s' % (sn1, sn2))
+    fig = plt.figure('extrinsic - %s - %s' % (cam1.sn, cam2.sn))
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     ax2 = fig.add_subplot(1, 2, 2)
 
     # Initialize axes limits
-    xlim1 = [0, 1]
-    ylim1 = [0, 1]
-    zlim1 = [0, 1]
-    ax1.set_xlim(xlim1[0], xlim1[1])
-    ax1.set_ylim(ylim1[0], ylim1[1])
-    ax1.set_zlim(zlim1[0], zlim1[1])
+    xlim = [-0.001, 0.001]
+    ylim = [-0.001, 0.001]
+    zlim = [-0.001, 0.001]
+    ax1.set_xlim(xlim[0], xlim[1])
+    ax1.set_ylim(ylim[0], ylim[1])
+    ax1.set_zlim(zlim[0], zlim[1])
 
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.set_zlabel("Z")
     ax2.set_xlabel("frame")
     ax2.set_ylabel("RMS")
-    plt.draw()
-    plt.pause(0.001)
 
     # Acquire enough good frames - until RMSE low enough at at least min frames collected
-    while rms > rms_threshold or len(imgpoints[sn1]) < min_frames:
-        # Get image from cam1
-        cam1.get_image(img1)
-        cam1_data = img1.get_image_data_numpy()
-        vcam1_data = np.copy(cam1_data)
+    while rms > rms_threshold or len(imgpoints[cam1.sn]) < min_frames:
+        # Get image from cam1 and 2
+        cam1_data = cam1.next_frame()
+        cam2_data = cam2.next_frame()
 
-        # Get image from cam2
-        cam2.get_image(img2)
-        cam2_data = img2.get_image_data_numpy()
-        vcam2_data = np.copy(cam2_data)
+        if cam1_data is None or cam2_data is None:
+            break
+
+        vcam1_data = np.copy(cam1_data)[:, :, :3].astype(np.uint8)
+        vcam2_data = np.copy(cam2_data)[:, :, :3].astype(np.uint8)
 
         # Convert to greyscale for chess board detection
         gray1 = cv2.cvtColor(cam1_data, cv2.COLOR_BGR2GRAY)
         gray2 = cv2.cvtColor(cam2_data, cv2.COLOR_BGR2GRAY)
         img_shape1 = gray1.shape[::-1]
 
-        # Find the chess board corners - fast check
-        ret1, corners1 = cv2.findChessboardCorners(gray1, (cbcol, cbrow), None, flags=cv2.CALIB_CB_FAST_CHECK)
-        ret2, corners2 = cv2.findChessboardCorners(gray2, (cbcol, cbrow), None, flags=cv2.CALIB_CB_FAST_CHECK)
+        # Find the chess board corners
+        [marker_corners1, marker_ids1, _] = cv2.aruco.detectMarkers(gray1, board1.dictionary,
+                                                                    parameters=detect_parameters)
+        cam1_board = None
+        # cam1_board_id=None
+        if len(marker_corners1):
+            if len(np.where(board1.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
+                cam1_board = board1
+                # cam1_board_id = 1
+            elif len(np.where(board2.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
+                cam1_board = board2
+                # cam1_board_id = 2
 
-        # If chessboard found in camera 1
-        if ret1:
-            # Visual feedback
-            vcam1_data = cv2.drawChessboardCorners(vcam1_data, (cbcol, cbrow), corners1, ret1)
-            vcam1_data = cv2.rectangle(vcam1_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+        [marker_corners2, marker_ids2, _] = cv2.aruco.detectMarkers(gray2, board1.dictionary,
+                                                                    parameters=detect_parameters)
+        cam2_board = None
+        # cam2_board_id = None
+        if len(marker_corners2):
+            if len(np.where(board1.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
+                cam2_board = board1
+                # cam2_board_id = 1
+            elif len(np.where(board2.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
+                cam2_board = board2
+                # cam2_board_id = 2
 
-        # If chessboard found in camera 1
-        if ret2:
-            # Visual feedback
-            vcam2_data = cv2.drawChessboardCorners(vcam2_data, (cbcol, cbrow), corners2, ret2)
-            vcam2_data = cv2.rectangle(vcam2_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+        # If found, add object points, image points (after refining them)
+        ret1 = 0
+        if len(marker_corners1) and cam1_board is not None:
+            [ret1, charuco_corners1, charuco_ids1] = cv2.aruco.interpolateCornersCharuco(marker_corners1, marker_ids1,
+                                                                                         gray1, cam1_board)
+            if ret1 > 0:
+                charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
+                                                        subcorner_term_crit)
 
-        # If found in both cameras, add object points, image points (after refining them)    
-        if ret1 and ret2:
-            # Add to list of object points
-            objpoints.append(objp)
+                vcam1_data = cv2.rectangle(vcam1_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                vcam1_data = cv2.aruco.drawDetectedMarkers(vcam1_data.copy(), marker_corners1, marker_ids1)
+                vcam1_data = cv2.aruco.drawDetectedCornersCharuco(vcam1_data.copy(), charuco_corners_sub1, charuco_ids1)
 
-            # Refine image points
-            corners1 = cv2.cornerSubPix(gray1, corners1, (11, 11), (-1, -1), subcorner_term_crit)
-            corners2 = cv2.cornerSubPix(gray2, corners2, (11, 11), (-1, -1), subcorner_term_crit)
+        ret2 = 0
+        if len(marker_corners2) > 0 and cam2_board is not None:
+            [ret2, charuco_corners2, charuco_ids2] = cv2.aruco.interpolateCornersCharuco(marker_corners2, marker_ids2,
+                                                                                         gray2, cam2_board)
 
-            # Add to list of image points            
-            imgpoints[sn1].append(corners1)
-            imgpoints[sn2].append(corners2)
+            if ret2 > 0:
+                charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
+                                                        subcorner_term_crit)
 
-            # Stereo calibration - keep intrinsic parameters fixed
-            rms, *_, r, t, _, _ = cv2.stereoCalibrate(objpoints[-10:], imgpoints[sn1][-10:], imgpoints[sn2][-10:],
-                                                      k1, d1, k2, d2, img_shape1, flags=cv2.CALIB_FIX_INTRINSIC,
-                                                      criteria=stereo_term_crit)
-            # Mean RMSE
-            rms = rms / (cbcol * cbrow)
-            good_point = True
-            # If there is a jump in RMSE - exclude this point
-            if len(rmss) > 0 and rms - rmss[-1] > 100:
-                objpoints.pop()
-                imgpoints[sn1].pop()
-                imgpoints[sn2].pop()
-                good_point = False
+                vcam2_data = cv2.rectangle(vcam2_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                vcam2_data = cv2.aruco.drawDetectedMarkers(vcam2_data.copy(), marker_corners2, marker_ids2)
+                vcam2_data = cv2.aruco.drawDetectedCornersCharuco(vcam2_data.copy(), charuco_corners_sub2, charuco_ids2)
 
-            # Otherwise, update lists and extrinsic parameters
-            else:
-                rmss.append(rms)
+        if ret1 > 20 and ret2 > 20:
 
-                extrinsic_params[sn2] = {}
-                extrinsic_params[sn2]['r'] = r @ extrinsic_params[sn1]['r']
-                extrinsic_params[sn2]['t'] = r @ extrinsic_params[sn1]['t'] + t
+            # Estimate the posture of the charuco board, which is a construction of 3D space based on the 2D video
+            pose1, rvec1, tvec1 = aruco.estimatePoseCharucoBoard(
+                charucoCorners=charuco_corners_sub1,
+                charucoIds=charuco_ids1,
+                board=cam1_board,
+                cameraMatrix=k1,
+                distCoeffs=d1,
+                rvec=None,
+                tvec=None
+            )
+            if pose1:
+                vcam1_data = aruco.drawAxis(vcam1_data, k1, d1, rvec1, tvec1, axis_size)
 
-                cam_list[sn1].append(cam1_data[:, :, :3])
-                cam_list[sn2].append(cam2_data[:, :, :3])
+            pose2, rvec2, tvec2 = aruco.estimatePoseCharucoBoard(
+                charucoCorners=charuco_corners_sub2,
+                charucoIds=charuco_ids2,
+                board=cam2_board,
+                cameraMatrix=k2,
+                distCoeffs=d2,
+                rvec=None,
+                tvec=None
+            )
+            if pose2:
+                vcam2_data = aruco.drawAxis(vcam2_data, k2, d2, rvec2, tvec2, axis_size)
 
-            # Triangulate
-            ax1.clear()
-            [location, pairs_used] = locate([sn1, sn2], {sn1: corners1, sn2: corners2}, intrinsic_params,
-                                            extrinsic_params)
+            if pose1 and pose2:
 
-            # If seen in both cameras - update plot
-            if pairs_used > 0 and good_point:
-                xs = location[:, 0]
-                ys = location[:, 1]
-                zs = location[:, 2]
-                ax1.scatter(xs, ys, zs, c='g', marker='o', s=1)
-                xlim1 = [min(xlim1[0], np.min(xs)), max(xlim1[1], np.max(xs))]
-                ylim1 = [min(ylim1[0], np.min(ys)), max(ylim1[1], np.max(ys))]
-                zlim1 = [min(zlim1[0], np.min(zs)), max(zlim1[1], np.max(zs))]
+                corners = []
+                pts1 = []
+                pts2 = []
+                n_pts = 0
+                for board1_id in range(63):
+                    # board2_id=board2_matching_ids[board1_id]
+                    # if (len(np.where(charuco_ids1==id_idx)[0]) and len(np.where(charuco_ids2==board2_id)[0])):
+                    # if cam1_board_id==1:
+                    #    cam1_corner_id=board1_id
+                    # elif cam1_board_id==2:
+                    #    cam1_corner_id=board2_id
+                    # if cam2_board_id==1:
+                    #    cam2_corner_id=board1_id
+                    # elif cam2_board_id==2:
+                    #    cam2_corner_id=board2_id
 
-                ax1.set_xlim(xlim1[0], xlim1[1])
-                ax1.set_ylim(ylim1[0], ylim1[1])
-                ax1.set_zlim(zlim1[0], zlim1[1])
-                ax1.set_xlabel("X")
-                ax1.set_ylabel("Y")
-                ax1.set_zlabel("Z")
+                    # if len(np.where(charuco_ids1==cam1_corner_id)[0]) and len(np.where(charuco_ids2 == cam2_corner_id)[0]):
+                    if len(np.where(charuco_ids1 == board1_id)[0]) and len(
+                            np.where(charuco_ids2 == board1_id)[0]):
+                        # corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
+                        corners.append(cam1_board.chessboardCorners[board1_id, :])
+
+                        # c1_idx=np.where(charuco_ids1==cam1_corner_id)[0][0]
+                        c1_idx = np.where(charuco_ids1 == board1_id)[0][0]
+                        pts1.append(charuco_corners_sub1[c1_idx, :, :])
+
+                        # c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
+                        c2_idx = np.where(charuco_ids2 == board1_id)[0][0]
+                        pts2.append(charuco_corners_sub2[c2_idx, :, :])
+                        n_pts = n_pts + 1
+
+                if len(corners):
+                    # Add to list of object points
+                    objpoints.append(np.array(corners).reshape((n_pts, 3)).astype(np.float32))
+                    imgpoints[cam1.sn].append(np.array(pts1).astype(np.float32))
+                    imgpoints[cam2.sn].append(np.array(pts2).astype(np.float32))
+
+                    # Stereo calibration - keep intrinsic parameters fixed
+                    rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn], imgpoints[cam2.sn],
+                                                                      k1, d1, k2, d2, img_shape1,
+                                                                      flags=cv2.CALIB_FIX_INTRINSIC,
+                                                                      criteria=stereo_term_crit)
+                    # Mean RMSE
+                    n_pts = []
+                    for obj in objpoints:
+                        n_pts.append(obj.shape[0])
+                    rms = rms / np.mean(n_pts)
+
+                    # If there is a jump in RMSE - exclude this point
+                    if len(rmss) > 0 and rms - rmss[-1] > 5:
+                        objpoints.pop()
+                        imgpoints[cam1.sn].pop()
+                        imgpoints[cam2.sn].pop()
+
+                    # Otherwise, update lists and extrinsic parameters
+                    else:
+                        rmss.append(rms)
+                        r = r_new
+                        t = t_new
+
+                        extrinsic_params[cam2.sn] = {
+                            'r': r @ extrinsic_params[cam1.sn]['r'],
+                            't': r @ extrinsic_params[cam1.sn]['t'] + t
+                        }
+
+                        cam_list[cam1.sn].append(cam1_data[:, :, :3])
+                        cam_list[cam2.sn].append(cam2_data[:, :, :3])
+
+                    # Triangulate
+                    ax1.clear()
+                    cam_outside_corners = {}
+                    cam_inside_corners = {}
+                    cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = project_chessboard(cam1_board, k1, d1,
+                                                                                                   rvec1, tvec1)
+                    cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = project_chessboard(cam2_board, k2, d2,
+                                                                                                   rvec2, tvec2)
+
+                    outside_corner_locations = np.zeros((4, 3))
+                    for idx in range(4):
+                        img_points = {}
+                        for sn in cam_outside_corners.keys():
+                            if len(cam_outside_corners[sn]):
+                                img_points[sn] = cam_outside_corners[sn][idx, :]
+                        [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                                intrinsic_params,
+                                                                                extrinsic_params)
+                    inside_corner_locations = np.zeros((63, 3))
+                    for idx in range(63):
+                        img_points = {}
+                        for sn in cam_inside_corners.keys():
+                            if len(cam_inside_corners[sn]):
+                                img_points[sn] = cam_inside_corners[sn][idx, :]
+                        [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                               intrinsic_params,
+                                                                               extrinsic_params)
+
+                    plot_chessboard_3d(ax1, outside_corner_locations, inside_corner_locations, intrinsic_params,
+                                       extrinsic_params)
+                    xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
+                            max(xlim[1], np.max(outside_corner_locations[:, 0]))]
+                    ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
+                            max(ylim[1], np.max(outside_corner_locations[:, 1]))]
+                    zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
+                            max(zlim[1], np.max(outside_corner_locations[:, 2]))]
+                    ax1.set_xlim(xlim[0], xlim[1])
+                    ax1.set_ylim(ylim[0], ylim[1])
+                    ax1.set_zlim(zlim[0], zlim[1])
+                    ax1.set_xlabel("X")
+                    ax1.set_ylabel("Y")
+                    ax1.set_zlabel("Z")
 
         # Plot RMSE
         ax2.clear()
-        ax2.plot(range(len(imgpoints[sn1])), rmss)
+        ax2.plot(range(len(imgpoints[cam1.sn])), rmss)
         ax2.set_xlabel("frame")
         ax2.set_ylabel("RMS")
 
-        plt.draw()
-        plt.pause(0.001)
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
 
         # Show num frames so far
-        vcam1_data = cv2.putText(vcam1_data, '%d frames' % len(imgpoints[sn1]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        vcam1_data = cv2.putText(vcam1_data, '%d frames' % len(imgpoints[cam1.sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                 2,
                                  (0, 255, 0), 2)
-        vcam2_data = cv2.putText(vcam2_data, '%d frames' % len(imgpoints[sn2]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        vcam2_data = cv2.putText(vcam2_data, '%d frames' % len(imgpoints[cam2.sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                 2,
                                  (0, 255, 0), 2)
 
         # Resize for display
-        width = int(f_size[0] * .5)
-        height = int(f_size[1] * .5)
-        dim = (width, height)
-        resized1 = cv2.resize(vcam1_data, dim, interpolation=cv2.INTER_AREA)
-
-        # Resize for display
-        width = int(f_size[0] * .5)
-        height = int(f_size[1] * .5)
-        dim = (width, height)
-        resized2 = cv2.resize(vcam2_data, dim, interpolation=cv2.INTER_AREA)
+        resized1 = quick_resize(vcam1_data, 0.5, f_size[0], f_size[1])
+        resized2 = quick_resize(vcam2_data, 0.5, f_size[0], f_size[1])
+        ratio = resized1.shape[0]/plt_img.shape[0]
+        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
 
         # Show camera images side by side
-        data1 = np.hstack([resized1, resized2])
-        cv2.imshow("cam", data1)
-        k = cv2.waitKey(1) & 0xFF
+        data = np.hstack([resized_plt, resized1, resized2])
+        cv2.imshow("cam", data)
+        key = cv2.waitKey(1) & 0xFF
 
         # Quit if enough frames
-        if k == ord('y'):
+        if key == ord('y'):
             break
         # Start over
-        elif k == ord('n'):
-            cam_list = {sn1: [], sn2: []}
+        elif key == ord('n'):
+            cam_list = {cam1.sn: [], cam2.sn: []}
             objpoints = []
-            imgpoints = {sn1: [], sn2: []}
+            imgpoints = {cam1.sn: [], cam2.sn: []}
             rmss = []
-            xlim1 = [0, 1]
-            ylim1 = [0, 1]
-            zlim1 = [0, 1]
+            xlim = [-0.001, 0.001]
+            ylim = [-0.001, 0.001]
+            zlim = [-0.001, 0.001]
 
-    if len(objpoints)>0:
+    if len(objpoints) > 0:
         # Final stereo calibration - keep intrinsic parameters fixed
-        (rms, *_, r, t, _, _) = cv2.stereoCalibrate(objpoints, imgpoints[sn1], imgpoints[sn2],
+        (rms, *_, r, t, _, _) = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn], imgpoints[cam2.sn],
                                                     k1, d1, k2, d2, img_shape1, flags=cv2.CALIB_FIX_INTRINSIC,
                                                     criteria=stereo_term_crit)
         # Mean RMSE
-        rms = rms / (cbcol * cbrow)
+        n_pts = []
+        for obj in objpoints:
+            n_pts.append(obj.shape[0])
+        rms = rms / np.mean(n_pts)
 
     return rms, r, t, cam_list
 
 
-def run_intrinsic_calibration(cams, imgs):
+def run_intrinsic_calibration(parameters, cams):
     """
     Run intrinsic calibration for each camera
-    :param cam_sns: list of camera SNs
+    :param parameters: Acquisition parameters
     :param cams: list of camera objects
-    :param imgs: image object for each camera
     :return: intrinsic calibration parameters for each camera
     """
     intrinsic_params = {}
 
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, 'intrinsic')
+
     # Calibrate each camera
-    for sn, cam, img in zip(cam_sns, cams, imgs):
-        print('Calibrating camera %s' % sn)
-        rpe, k, d, cam_list = intrinsic_cam_calibration(sn, cam, img)
+    for cam in cams:
+        print('Calibrating camera %s' % cam.sn)
+        rpe, k, d, cam_list = intrinsic_cam_calibration(cam)
         print("Mean re-projection error: %.3f pixels " % rpe)
-        intrinsic_params[sn] = {
+        intrinsic_params[cam.sn] = {
             'k': k,
             'd': d
         }
@@ -498,7 +676,7 @@ def run_intrinsic_calibration(cams, imgs):
         # Save frames for calibration
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         cam_vid = cv2.VideoWriter(
-            "intrinsic_cam_{}.avi".format(sn),
+            "intrinsic_cam_{}.avi".format(cam.sn),
             fourcc,
             float(fps),
             f_size
@@ -517,243 +695,320 @@ def run_intrinsic_calibration(cams, imgs):
     return intrinsic_params
 
 
-def intrinsic_cam_calibration(sn, cam, img):
+def intrinsic_cam_calibration(cam):
     """
     Run intrinsic calibration for one camera
-    :param sn: camera SN
     :param cam: camera object
-    :param img: image object for camera
     :return: tuple: reprojection error, k, distortion coefficient, list of frames for each camera
     """
-    cam_list = []
-    objpoints = []
-    imgpoints = []
 
     # Stop when RPE lower than threshold and greater than min frames collected
     rpe_threshold = 0.5
     min_frames = 50
     rpe = 1e6
-    rpes = []
 
-    # Initialize params
-    k = np.zeros((3, 3))
-    d = np.zeros((1, 5))
-    map_x, map_y = cv2.initUndistortRectifyMap(k, d, None, k, (f_size[0], f_size[1]), cv2.CV_32FC1)
+    board, other_board = create_charuco_boards()
 
     # Plot RPE
-    fig = plt.figure('Intrinsic - %s' % sn)
+    fig = plt.figure('Intrinsic - %s' % cam.sn)
     ax = fig.add_subplot(111)
     ax.set_xlabel("frame")
     ax.set_ylabel("RPE")
-    plt.draw()
-    plt.pause(0.001)
 
-    print('Accept intrinsic calibration (y/n)?')
+    cam_list = []
+    all_corners = []
+    all_ids = []
+    rpes = []
+
+    # Initialize params
+    k = np.eye(3)
+    d = np.zeros((5, 1))
+
+    map_x, map_y = cv2.initUndistortRectifyMap(k, d, None, k, (f_size[0], f_size[1]), cv2.CV_32FC1)
 
     # Acquire enough good frames - until RPE low enough at at least min frames collected
-    while rpe > rpe_threshold or len(imgpoints) < min_frames:
+    while rpe > rpe_threshold or len(all_corners) < min_frames:
 
         # Get image from camera
-        cam.get_image(img)
-        cam_data = img.get_image_data_numpy()
-        undist_data = cv2.remap(cam_data, map_x, map_y, cv2.INTER_LINEAR)
-        vcam_data = np.copy(cam_data)
-        vundist_data = np.copy(undist_data)
+        new_cam_data = cam.next_frame()
+        if new_cam_data is None:
+            break
+        cam_data = new_cam_data
+        vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
         # Convert to greyscale for chess board detection
         gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
 
-        # Find the chess board corners - fast check
-        ret, corners = cv2.findChessboardCorners(gray, (cbcol, cbrow), None, flags=cv2.CALIB_CB_FAST_CHECK)
+        # Find the chess board corners
+        [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary, parameters=detect_parameters)
 
-        # If found, add object points, image points (after refining them)   
-        if ret:
+        # If found, add object points, image points (after refining them)
+        if len(marker_corners) > 0:
             img_shape = gray.shape[::-1]
-            objpoints.append(objp)
 
-            # Refine image points
-            corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), subcorner_term_crit)
-            imgpoints.append(corners)
+            [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids, gray,
+                                                                                      board)
 
-            # Visual feedback
-            vcam_data = cv2.drawChessboardCorners(vcam_data, (cbcol, cbrow), corners, ret)
-            vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+            if ret > 20:
+                charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
 
-            # Intrinsic calibration
-            rpe, k, d, r, t = cv2.calibrateCamera(objpoints[-10:], imgpoints[-10:], img_shape, None, None, flags=intrinsic_flags)
+                all_corners.append(charuco_corners_sub)
+                all_ids.append(charuco_ids)
 
-            # Undistort
-            undist_corners = cv2.undistortPoints(corners, k, d)
-            vundist_data = cv2.drawChessboardCorners(vundist_data, (cbcol, cbrow), undist_corners, ret)
-            vundist_data = cv2.rectangle(vundist_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                # Visual feedback
+                vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
+                vcam_data = cv2.aruco.drawDetectedCornersCharuco(vcam_data.copy(), charuco_corners_sub, charuco_ids)
 
-            # If there is a jump in RPE - exclude this point
-            if len(rpes) > 0 and rpe - rpes[-1] > 100:
-                objpoints.pop()
-                imgpoints.pop()
-            # Otherwise, update lists and undistort rectify map
-            else:
-                rpes.append(rpe)
-                map_x, map_y = cv2.initUndistortRectifyMap(k, d, None, k, img_shape, cv2.CV_32FC1)
-                cam_list.append(cam_data[:, :, :3])
+                # Intrinsic calibration
+                if len(all_corners) >= 6:
+                    rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners,
+                                                                       charucoIds=all_ids,
+                                                                       board=board,
+                                                                       imageSize=img_shape,
+                                                                       cameraMatrix=None,
+                                                                       distCoeffs=None,
+                                                                       flags=intrinsic_flags,
+                                                                       criteria=intrinsic_term_crit)
+                    # If there is a jump in RPE - exclude this point
+                    if len(rpes) > 0 and rpe - rpes[-1] > 100:
+                        all_corners.pop()
+                        all_ids.pop()
+                    # Otherwise, update lists and undistort rectify map
+                    else:
+                        rpes.append(rpe)
+                        cam_list.append(cam_data[:, :, :3])
+                        map_x, map_y = cv2.initUndistortRectifyMap(k, d, None, k, img_shape, cv2.CV_32FC1)
 
-        # Number of frames so far
-        vcam_data = cv2.putText(vcam_data, '%d frames' % len(imgpoints), (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2,
+        undist_data = cv2.remap(vcam_data, map_x, map_y, cv2.INTER_LINEAR)
+        undist_data = cv2.putText(undist_data, 'undistorted', (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 2)
+
+        vcam_data = cv2.putText(vcam_data, '%d frames' % len(all_corners), (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 2,
                                 (0, 255, 0), 2)
 
         # Plot projection error
         ax.clear()
-        ax.plot(range(len(imgpoints)), rpes)
+        ax.plot(range(len(rpes)), rpes)
         ax.set_xlabel("frame")
         ax.set_ylabel("RPE")
-        plt.draw()
-        plt.pause(0.001)
 
-        # Resize for display    
-        width = int(f_size[0] * .5)
-        height = int(f_size[1] * .5)
-        dim = (width, height)
-        resized = cv2.resize(vcam_data, dim, interpolation=cv2.INTER_AREA)
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
 
         # Resize for display
-        width = int(f_size[0] * .5)
-        height = int(f_size[1] * .5)
-        dim = (width, height)
-        undist_resized = cv2.resize(vundist_data, dim, interpolation=cv2.INTER_AREA)
+        resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
+        undist_resized = quick_resize(undist_data, 0.5, f_size[0], f_size[1])
+        ratio = resized.shape[0] / plt_img.shape[0]
+        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
+
+        data = np.hstack([resized_plt, resized, undist_resized])
 
         # Show camera image and undistorted image side by side
-        data = np.hstack([resized, undist_resized])
         cv2.imshow("cam", data)
-        k = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1) & 0xFF
 
         # Quit if enough frames
-        if k == ord('y'):
+        if key == ord('y'):
             break
         # Start over
-        elif k == ord('n'):
+        elif key == ord('n'):
             cam_list = []
-            objpoints = []
-            imgpoints = []
+            all_corners = []
+            all_ids = []
             rpes = []
 
     # Final camera calibration
-    rpe, k, d, r, t = cv2.calibrateCamera(objpoints, imgpoints, img_shape, None, None, flags=intrinsic_flags)
-
-    # Mean RPE
-    rpe = rpe / (cbcol * cbrow)
+    rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners,
+                                                       charucoIds=all_ids,
+                                                       board=board,
+                                                       imageSize=img_shape,
+                                                       cameraMatrix=None,
+                                                       distCoeffs=None,
+                                                       flags=intrinsic_flags,
+                                                       criteria=intrinsic_term_crit)
 
     return rpe, k, d, cam_list
 
 
-def verify_calibration(cams, imgs, intrinsic_params, extrinsic_params):
+def verify_calibration(cams, intrinsic_params, extrinsic_params):
     """
     Verify calibration
-    :param cam_sns: list of camera SNs
     :param cams: list of camera objects
-    :param imgs: image object for each camera
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :param extrinsic_params: extrinsic calibration parameters for each camera
     :return: whether or not to accept calibration
     """
 
+    axis_size = 0.025  # This value is in meters
+
+    board1, board2 = create_charuco_boards()
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    xlim = [0, 1]
-    ylim = [0, 1]
-    zlim = [0, 1]
+    xlim = [-0.001, 0.001]
+    ylim = [-0.001, 0.001]
+    zlim = [-0.001, 0.001]
     ax.set_xlim(xlim[0], xlim[1])
     ax.set_ylim(ylim[0], ylim[1])
     ax.set_zlim(zlim[0], zlim[1])
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    plt.draw()
-    plt.pause(0.001)
+
     print('Accept final calibration (y/n)?')
 
     while True:
         cam_datas = []
-        cam_coords = {}
+        cam_outside_corners = {}
+        cam_inside_corners = {}
 
-        for sn, cam, img in zip(cam_sns, cams, imgs):
-            cam.get_image(img)
-
-            cam_data = img.get_image_data_numpy()
+        for cam in cams:
+            cam_data = cam.next_frame()[:, :, :3].astype(np.uint8)
+            k = intrinsic_params[cam.sn]['k']
+            d = intrinsic_params[cam.sn]['d']
 
             gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-            ret, corners = cv2.findChessboardCorners(gray, (cbcol, cbrow), None, flags=cv2.CALIB_CB_FAST_CHECK)
 
-            cam_coords[sn] = []
-            if ret:
-                cam_coords[sn] = corners
-                cam_data = cv2.drawChessboardCorners(cam_data, (cbcol, cbrow), corners, ret)
-                cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+            cam_outside_corners[cam.sn] = np.array([])
+            cam_inside_corners[cam.sn] = np.array([])
 
-            width = int(f_size[0] * .5)
-            height = int(f_size[1] * .5)
-            dim = (width, height)
-            resized = cv2.resize(cam_data, dim, interpolation=cv2.INTER_AREA)
+            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board1.dictionary,
+                                                                    parameters=detect_parameters)
+            cam_board = None
+            # cam_board_id = None
+            if len(marker_corners):
+                if len(np.where(board1.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
+                    cam_board = board1
+                    # cam_board_id = 1
+                elif len(np.where(board2.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
+                    cam_board = board2
+                    # cam_board_id = 2
+
+                [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
+                                                                                          gray, cam_board)
+                if ret > 0:
+                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                                           subcorner_term_crit)
+
+                    cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                    # vcam1_data = cv2.aruco.drawDetectedMarkers(vcam1_data.copy(), markerCorners1, markerIds1)
+                    cam_data = cv2.aruco.drawDetectedCornersCharuco(cam_data.copy(), charuco_corners_sub,
+                                                                    charuco_ids)
+
+                    # Estimate the posture of the charuco board, which is a construction of 3D space based on the 2D
+                    # video
+                    pose, rvec, tvec = aruco.estimatePoseCharucoBoard(
+                        charucoCorners=charuco_corners_sub,
+                        charucoIds=charuco_ids,
+                        board=cam_board,
+                        cameraMatrix=k,
+                        distCoeffs=d,
+                        rvec=None,
+                        tvec=None
+                    )
+                    if pose:
+                        cam_data = aruco.drawAxis(cam_data, k, d, rvec, tvec, axis_size)
+                        cam_outside_corners[cam.sn], cam_inside_corners[cam.sn] = project_chessboard(cam_board, k, d,
+                                                                                                     rvec, tvec)
+
+            resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
             cam_datas.append(resized)
 
         ax.clear()
-        [location, pairs_used] = locate(cam_sns, cam_coords, intrinsic_params, extrinsic_params)
-        if pairs_used > 0:
-            xs = location[:, 0]
-            ys = location[:, 1]
-            zs = location[:, 2]
-            ax.scatter(xs, ys, zs, c='g', marker='o', s=1)
-            xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
-            ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
-            zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
-        ax.set_xlim(xlim[0], xlim[1])
-        ax.set_ylim(ylim[0], ylim[1])
-        ax.set_zlim(zlim[0], zlim[1])
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        plt.draw()
-        plt.pause(0.001)
+        outside_corner_locations = np.zeros((4, 3))
+        for idx in range(4):
+            img_points = {}
+            for sn in cam_outside_corners.keys():
+                if len(cam_outside_corners[sn]):
+                    img_points[sn] = cam_outside_corners[sn][idx, :]
+            [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                    intrinsic_params,
+                                                                    extrinsic_params)
+        inside_corner_locations = np.zeros((63, 3))
+        for idx in range(63):
+            img_points = {}
+            for sn in cam_inside_corners.keys():
+                if len(cam_inside_corners[sn]):
+                    img_points[sn] = cam_inside_corners[sn][idx, :]
+            [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                   intrinsic_params,
+                                                                   extrinsic_params)
+        plot_chessboard_3d(ax, outside_corner_locations, inside_corner_locations, intrinsic_params, extrinsic_params)
 
-        data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]), np.hstack([cam_datas[2], cam_datas[3]])])
+        if outside_corner_locations.shape[0] > 0:
+            xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
+                    max(xlim[1], np.max(outside_corner_locations[:, 0]))]
+            ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
+                    max(ylim[1], np.max(outside_corner_locations[:, 1]))]
+            zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
+                    max(zlim[1], np.max(outside_corner_locations[:, 2]))]
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+            ax.set_zlim(zlim)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Z")
+
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
+
+        ratio = resized.shape[0] / plt_img.shape[0]
+        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
+
+        if len(cam_datas) == 2:
+            data = np.hstack([resized_plt, cam_datas[0], cam_datas[1]])
+        elif len(cam_datas) == 3:
+            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, blank_cam, cam_datas[2]])])
+        else:
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
 
         cv2.imshow("cam", data)
-        k = cv2.waitKey(1) & 0xFF
-        if k == ord('y'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('y'):
             accept = True
             break
-        elif k == ord('n'):
+        elif key == ord('n'):
             accept = False
             break
-    plt.close('all')
-    plt.draw()
-    plt.pause(0.001)
-    cv2.destroyAllWindows()
+
     return accept
 
 
-def run_calibration(run_intrinsic=True, run_extrinsic=True, collect_sba=True):
+def run_calibration(parameters, run_intrinsic=True, run_extrinsic=True, collect_sba=True):
     """
     Run all calibration
+    :param parameters: Acquisition parameters
+    :param run_intrinsic: Run instrinsic calibration
+    :param run_extrinsic: Run extrinsic calibration
+    :param collect_sba: Collect data for SBA
     """
-    cams = []
-    imgs = []
-
-    ############################
-    # for each camera separately
-    for sn in cam_sns:
-        cam, img = camera_init(sn, fps, shutter, gain)
-		
-        cam.start_acquisition()
-        cams.append(cam)
-        imgs.append(img)
+    cams = None
+    if parameters['type'] == 'online':
+        cams = init_camera_sources(parameters, fps, shutter, gain)
 
     # Run until final acceptance
     calib_finished = False
+    # try:
     while not calib_finished:
 
         # Intrinsic calibration
         if run_intrinsic:
-            intrinsic_params = run_intrinsic_calibration(cams, imgs)
+            intrinsic_params = run_intrinsic_calibration(parameters, cams)
             cv2.destroyAllWindows()
         else:
             handle = open('intrinsic_params.pickle', "rb")
@@ -762,7 +1017,7 @@ def run_calibration(run_intrinsic=True, run_extrinsic=True, collect_sba=True):
 
         # Extrinsic calibration
         if run_extrinsic:
-            extrinsic_params = run_extrinsic_calibration(cams, imgs, intrinsic_params)
+            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params)
             cv2.destroyAllWindows()
         else:
             handle = open('extrinsic_params.pickle', "rb")
@@ -771,26 +1026,50 @@ def run_calibration(run_intrinsic=True, run_extrinsic=True, collect_sba=True):
 
         # Collect data for SBA
         if collect_sba:
-            collect_sba_data(cams, imgs, intrinsic_params, extrinsic_params)
+            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params)
             cv2.destroyAllWindows()
 
         # Test calibration
-        calib_finished = verify_calibration(cams, imgs, intrinsic_params, extrinsic_params)
+        if parameters['type'] == 'online':
+            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params)
+            cv2.destroyAllWindows()
+    # except:
+    #    pass
 
     # Close cameras
     for cam in cams:
-        cam.stop_acquisition()
-        cam.close_device()
+        cam.close()
 
 
 if __name__ == '__main__':
-    intrinsic = True
-    extrinsic = True
-    sba = True
-    if len(sys.argv) > 1:
+
+    try:
         intrinsic = sys.argv[1] == '1'
-    if len(sys.argv) > 2:
+        print('RUNNING: intrinsic')
+    except:
+        intrinsic = False
+
+    try:
         extrinsic = sys.argv[2] == '1'
-    if len(sys.argv) > 3:
+        print('RUNNING: extrinsic')
+    except:
+        extrinsic = False
+
+    try:
         sba = sys.argv[3] == '1'
-    run_calibration(run_intrinsic=intrinsic, run_extrinsic=extrinsic, collect_sba=sba)
+        print('RUNNING: sba')
+    except:
+        sba = False
+
+    try:
+        json_file = sys.argv[4]
+        print("USING: ", json_file)
+    except:
+        json_file = "settings.json"
+        print("USING: ", json_file)
+
+    # opening a json file
+    with open(json_file) as settings_file:
+        params = json.load(settings_file)
+
+    run_calibration(params, run_intrinsic=intrinsic, run_extrinsic=extrinsic, collect_sba=sba)

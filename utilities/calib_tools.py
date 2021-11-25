@@ -1,9 +1,15 @@
+import copy
 from time import time
+
+import matplotlib
 import numpy as np
 import cv2
+from cv2 import aruco
 from scipy.sparse import lil_matrix
 from scipy.optimize import least_squares
 from scipy import linalg
+import matplotlib.pyplot as plt
+
 
 def project_points(obj_pts, k, d, r, t):
     pts = cv2.projectPoints(obj_pts, r, t, k, d)[0].reshape((-1, 2))
@@ -124,12 +130,12 @@ def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
         sn1 = cam_sns[idx1]
         for idx2 in range(idx1 + 1, len(cam_sns)):
             sn2 = cam_sns[idx2]
-            img_pts = {
-                sn1: camera_coords[sn1],
-                sn2: camera_coords[sn2]
-            }
-
-            if len(camera_coords[sn1]) > 0 and len(camera_coords[sn2]) > 0:
+            if sn1 in camera_coords and len(camera_coords[sn1]) > 0 and sn2 in camera_coords and len(
+                    camera_coords[sn2]) > 0:
+                img_pts = {
+                    sn1: camera_coords[sn1],
+                    sn2: camera_coords[sn2]
+                }
                 result = triangulate_points(sn1, sn2, img_pts, intrinsic_params, extrinsic_params)
                 location = location + result
                 pairs_used = pairs_used + 1
@@ -137,32 +143,34 @@ def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
         location = location / pairs_used
     return [location, pairs_used]
 
+
 def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
-    A=[]
-    cameras_used=0
-    location=np.zeros((1,3))
+    A = []
+    cameras_used = 0
+    location = np.zeros((1, 3))
     for idx in range(len(cam_sns)):
         sn = cam_sns[idx]
         if len(camera_coords[sn]) > 0:
-            point=camera_coords[sn]
+            point = camera_coords[sn]
             RT = np.concatenate([extrinsic_params[sn]['r'], extrinsic_params[sn]['t']], axis=-1)
             P = intrinsic_params[sn]['k'] @ RT
-            A.append(point[0,1]*P[2,:]-P[1,:])
-            A.append(P[0,:]-point[0,0]*P[2,:])
-            cameras_used=cameras_used+1
-    if cameras_used>1:
-        A=np.array(A)
-        A = np.array(A).reshape((cameras_used*2, 4))
+            A.append(point[0, 1] * P[2, :] - P[1, :])
+            A.append(P[0, :] - point[0, 0] * P[2, :])
+            cameras_used = cameras_used + 1
+    if cameras_used > 1:
+        A = np.array(A)
+        A = np.array(A).reshape((cameras_used * 2, 4))
         # print('A: ')
         # print(A)
 
         B = A.transpose() @ A
         U, s, Vh = linalg.svd(B, full_matrices=False)
 
-        location=Vh[-1, 0:3] / Vh[-1, 3]
-        location=np.reshape(location,(1,3))
+        location = Vh[-1, 0:3] / Vh[-1, 3]
+        location = np.reshape(location, (1, 3))
 
     return [location, cameras_used]
+
 
 def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
     k_arr = np.array([intrinsic_params[x]['k'] for x in cam_sns])
@@ -215,3 +223,162 @@ def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
         print(f"After: mean: {np.mean(res['after'])}, std: {np.std(res['after'])}\n")
 
     return [pts_3d, pairs_used]
+
+
+def create_charuco_boards(plot=False, save_template=False):
+    sqWidth = 10  # number of squares width
+    sqHeight = 8  # number of squares height
+
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
+    board1 = cv2.aruco.CharucoBoard_create(sqWidth, sqHeight, 0.025, 0.0125, dictionary)
+    board2 = cv2.aruco.CharucoBoard_create(sqWidth, sqHeight, 0.025, 0.0125, dictionary)
+    board2.ids = board2.ids + len(board1.ids)
+
+    imboard1 = board1.draw((991, 792))
+    imboard2 = board2.draw((991, 792))
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(2, 1, 1)
+        plt.imshow(imboard1, cmap=matplotlib.cm.gray, interpolation="nearest")
+        ax.axis("off")
+        ax = fig.add_subplot(2, 1, 2)
+        plt.imshow(imboard2, cmap=matplotlib.cm.gray, interpolation="nearest")
+        ax.axis("off")
+        plt.show()
+    if save_template:
+        cv2.imwrite("../charuco_board_1.png", imboard1)
+        cv2.imwrite("../charuco_board_2.png", imboard2)
+    return board1, board2
+
+
+def create_aruco_cube(plot=False, save_template=False):
+    markerWidth = 0.045  # This value is in meters
+    # Define Aruco board, which can be any 3D shape. See helper CAD file @ https://cad.onshape.com/documents/d51fdec31f121f572b802b11/w/83fac6aaee78bdc978fd804d/e/8ae3ae505e4af3c7402b131a
+    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
+    board_ids = np.array([[94], [95], [96], [97], [98], [99]], dtype=np.int32)
+    board_corners = [
+        np.array([[-0.022, 0.023, 0.03], [0.023, 0.022, 0.03], [0.023, -0.023, 0.03], [-0.022, -0.023, 0.03]],
+                 dtype=np.float32),
+        np.array([[-0.022, -0.03, 0.022], [0.023, -0.03, 0.022], [0.022, -0.03, -0.022], [-0.022, -0.03, -0.022]],
+                 dtype=np.float32),
+        np.array([[-0.03, -0.023, 0.022], [-0.03, -0.022, -0.023], [-0.03, 0.023, -0.022], [-0.03, 0.023, 0.023]],
+                 dtype=np.float32),
+        np.array([[-0.022, -0.022, -0.03], [0.023, -0.023, -0.03], [0.023, 0.023, -0.03], [-0.022, 0.023, -0.03]],
+                 dtype=np.float32),
+        np.array([[0.03, -0.023, -0.022], [0.03, -0.023, 0.023], [0.03, 0.023, 0.022], [0.03, 0.022, -0.023]],
+                 dtype=np.float32),
+        np.array([[-0.022, 0.03, -0.023], [0.023, 0.03, -0.022], [0.023, 0.03, 0.023], [-0.022, 0.03, 0.022]],
+                 dtype=np.float32)
+    ]
+    board = aruco.Board_create(board_corners, aruco_dict, board_ids)
+
+    imboard = drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids)
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        plt.imshow(imboard, cmap=matplotlib.cm.gray, interpolation="nearest")
+        ax.axis("off")
+        plt.show()
+
+    if save_template:
+        # Create an image from the gridboard
+        cv2.imwrite("../aruco_cube.png", imboard)
+
+    return board
+
+
+def drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids):
+    paperPxWidth = 300
+    paperWidth = 0.2159  # This value is in meters, for 8.5x11" paper
+    faceWidth = 0.06  # This value is in meters
+    cubeTemplate = np.ones((int(paperPxWidth * 11 / 8.5), paperPxWidth)) * 255
+    markerPx = int((markerWidth / paperWidth) * cubeTemplate.shape[1] / 2)
+    facePx = int((faceWidth / paperWidth) * cubeTemplate.shape[1] / 2)
+
+    def drawMarkerAt(id, markerCenter):
+        marker = aruco.drawMarker(aruco_dict, id, markerPx * 2, borderBits=1)
+        paddedMarker = np.ones((facePx * 2, facePx * 2)) * 255
+        padding = facePx - markerPx
+        paddedMarker[padding:(facePx * 2) - padding,
+        padding:(facePx * 2) - padding] = marker
+        cv2.rectangle(paddedMarker, (0, 0), (paddedMarker.shape[0] - 1, paddedMarker.shape[1] - 1), 0, 1)
+        cubeTemplate[markerCenter[1] - facePx:markerCenter[1] + facePx,
+        markerCenter[0] - facePx:markerCenter[0] + facePx] = paddedMarker
+
+    drawMarkerAt(board_ids[0][0], (int(cubeTemplate.shape[1] / 2), facePx))
+    drawMarkerAt(board_ids[1][0], (int(cubeTemplate.shape[1] / 2), facePx + 1 * facePx * 2))
+    drawMarkerAt(board_ids[2][0], (int(cubeTemplate.shape[1] / 2) - facePx * 2, facePx + 2 * facePx * 2))
+    drawMarkerAt(board_ids[3][0], (int(cubeTemplate.shape[1] / 2), facePx + 2 * facePx * 2))
+    drawMarkerAt(board_ids[4][0], (int(cubeTemplate.shape[1] / 2) + facePx * 2, facePx + 2 * facePx * 2))
+    drawMarkerAt(board_ids[5][0], (int(cubeTemplate.shape[1] / 2), facePx + 3 * facePx * 2))
+    return cubeTemplate
+
+
+def plot_chessboard_3d(ax, cam_outside_corners, cam_inside_corners, intrinsic_params, extrinsic_params):
+    outside_corner_locations = np.zeros((4, 3))
+    for idx in range(4):
+        img_points = {}
+        for sn in cam_outside_corners.keys():
+            if len(cam_outside_corners[sn]):
+                img_points[sn] = cam_outside_corners[sn][idx, :]
+        [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points, intrinsic_params,
+                                                                extrinsic_params)
+    inside_corner_locations = np.zeros((63, 3))
+    for idx in range(63):
+        img_points = {}
+        for sn in cam_inside_corners.keys():
+            if len(cam_inside_corners[sn]):
+                img_points[sn] = cam_inside_corners[sn][idx, :]
+        [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points, intrinsic_params,
+                                                               extrinsic_params)
+
+    if outside_corner_locations.shape[0] > 0:
+        ax.plot([outside_corner_locations[0, 0], outside_corner_locations[1, 0]],
+                [outside_corner_locations[0, 1], outside_corner_locations[1, 1]],
+                zs=[outside_corner_locations[0, 2], outside_corner_locations[1, 2]])
+        ax.plot([outside_corner_locations[1, 0], outside_corner_locations[3, 0]],
+                [outside_corner_locations[1, 1], outside_corner_locations[3, 1]],
+                zs=[outside_corner_locations[1, 2], outside_corner_locations[3, 2]])
+        ax.plot([outside_corner_locations[2, 0], outside_corner_locations[3, 0]],
+                [outside_corner_locations[2, 1], outside_corner_locations[3, 1]],
+                zs=[outside_corner_locations[2, 2], outside_corner_locations[3, 2]])
+        ax.plot([outside_corner_locations[2, 0], outside_corner_locations[0, 0]],
+                [outside_corner_locations[2, 1], outside_corner_locations[0, 1]],
+                zs=[outside_corner_locations[2, 2], outside_corner_locations[0, 2]])
+
+        cmap = plt.get_cmap('viridis')
+        ncolors = len(cmap.colors)
+        ncorners = inside_corner_locations.shape[0]
+        for idx in range(ncorners):
+            col_idx = int((idx / ncorners) * ncolors)
+            ax.scatter(inside_corner_locations[idx, 0], inside_corner_locations[idx, 1],
+                       inside_corner_locations[idx, 2],
+                       color=cmap.colors[col_idx], marker='o', s=1)
+    return outside_corner_locations
+
+
+def project_chessboard(cam_board, k, d, rvec, tvec):
+    outside_corners = [
+        [np.min(cam_board.chessboardCorners[:, 0]), np.min(cam_board.chessboardCorners[:, 1]), 0],
+        [np.max(cam_board.chessboardCorners[:, 0]), np.min(cam_board.chessboardCorners[:, 1]), 0],
+        [np.min(cam_board.chessboardCorners[:, 0]), np.max(cam_board.chessboardCorners[:, 1]), 0],
+        [np.max(cam_board.chessboardCorners[:, 0]), np.max(cam_board.chessboardCorners[:, 1]), 0]]
+    outside_corners = np.array(outside_corners)
+    [rmat, jac] = cv2.Rodrigues(rvec)
+    outside_projected = np.zeros((outside_corners.shape[0], 2))
+    for i in range(outside_corners.shape[0]):
+        ptProj = np.matmul(rmat, np.reshape(outside_corners[i, :], (3, 1))) + tvec
+        [outside_projected[i, :], jac] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
+
+    inside_corners = cam_board.chessboardCorners
+    [rmat, jac] = cv2.Rodrigues(rvec)
+    inside_projected = np.zeros((inside_corners.shape[0], 2))
+    for i in range(inside_corners.shape[0]):
+        ptProj = np.matmul(rmat, np.reshape(inside_corners[i, :], (3, 1))) + tvec
+        [inside_projected[i, :], jac] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
+
+    return outside_projected, inside_projected
+
+
+if __name__ == '__main__':
+    create_charuco_boards(plot=False, save_template=False)

@@ -3,56 +3,8 @@ import time
 import json
 import numpy as np
 import os.path as op
-from ximea import xiapi
-from datetime import datetime
-from copy import copy
 
-
-def get_WB_coef(s_n, framerate, shutter, gain):
-    cam = xiapi.Camera()
-    img = xiapi.Image()
-    cam.open_device_by_SN(s_n)
-    cam.set_sensor_feature_value(1)
-    cam.set_imgdataformat("XI_RGB24")
-    cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE")
-    cam.set_framerate(framerate)
-    cam.set_exposure(shutter)
-    cam.set_gain(gain)
-    cam.enable_auto_wb()
-    cam.start_acquisition()
-    start = time.monotonic()
-    while (time.monotonic() - start) <= 1:
-        cam.get_image(img)
-
-    kR = cam.get_wb_kr()
-    kG = cam.get_wb_kg()
-    kB = cam.get_wb_kb()
-
-    cam.stop_acquisition()
-    cam.close_device()
-
-    return kR, kG, kB
-
-
-def camera_init(s_n, framerate, shutter, gain):
-    cam = xiapi.Camera()
-    img = xiapi.Image()
-    cam.open_device_by_SN(s_n)
-    cam.set_sensor_feature_value(1)
-    cam.set_imgdataformat("XI_RAW8")
-    cam.disable_auto_bandwidth_calculation()
-    cam.disable_auto_wb()
-    cam.set_counter_selector("XI_CNT_SEL_API_SKIPPED_FRAMES")
-    cam.set_acq_timing_mode("XI_ACQ_TIMING_MODE_FRAME_RATE")
-    cam.set_framerate(framerate)
-    cam.set_exposure(shutter)
-    cam.set_gain(gain)
-    return cam, img
-
-
-
-def shtr_spd(framerate):
-    return int((1/framerate)*1e+6)-100
+from camera_io import init_camera_sources, shtr_spd, get_WB_coef
 
 
 def dump_and_run(lists, path):
@@ -60,33 +12,21 @@ def dump_and_run(lists, path):
     np.save(path, frames)
 
 
-
-cams_sn = {
-    "cam0": "06955451",
-    "cam1": "32052251",
-    "cam2": "39050251",
-    "cam3": "32050651"
-}
-
+# opening a json file
+with open('settings.json') as settings_file:
+    params = json.load(settings_file)
 
 fps = 200
 gain = 5
 shutter = shtr_spd(fps)
 
-kR_cam0, kG_cam0, kB_cam0 = get_WB_coef(cams_sn["cam0"], 30, shutter, gain)
-kR_cam1, kG_cam1, kB_cam1 = get_WB_coef(cams_sn["cam1"], 30, shutter, gain)
-kR_cam2, kG_cam2, kB_cam2 = get_WB_coef(cams_sn["cam2"], 30, shutter, gain)
-kR_cam3, kG_cam3, kB_cam3 = get_WB_coef(cams_sn["cam3"], 30, shutter, gain)
+kR_cam0, kG_cam0, kB_cam0 = get_WB_coef(params['cams_sn'][0], 30, shutter, gain)
+kR_cam1, kG_cam1, kB_cam1 = get_WB_coef(params['cams_sn'][1], 30, shutter, gain)
+kR_cam2, kG_cam2, kB_cam2 = get_WB_coef(params['cams_sn'][2], 30, shutter, gain)
+kR_cam3, kG_cam3, kB_cam3 = get_WB_coef(params['cams_sn'][3], 30, shutter, gain)
 
-cam0, img0 = camera_init(cams_sn["cam0"], fps, shutter, gain)
-cam1, img1 = camera_init(cams_sn["cam1"], fps, shutter, gain)
-cam2, img2 = camera_init(cams_sn["cam2"], fps, shutter, gain)
-cam3, img3 = camera_init(cams_sn["cam3"], fps, shutter, gain)
-
-cam0.start_acquisition()
-cam1.start_acquisition()
-cam2.start_acquisition()
-cam3.start_acquisition()
+cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, disable_auto_bandwidth=True,
+                         img_data_format='XI_RAW8', auto_wb=False, counter_selector='XI_CNT_SEL_API_SKIPPED_FRAMES')
 
 
 #TCP_IP = "169.254.226.95"
@@ -113,7 +53,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": cams_sn["cam0"],
+            "sn": params['cam_sns'][0],
             "WB_auto_coeff_RGB": [kR_cam0, kG_cam0, kB_cam0]
         }
 
@@ -122,7 +62,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": cams_sn["cam1"],
+            "sn": params['cam_sns'][1],
             "WB_auto_coeff_RGB": [kR_cam1, kG_cam1, kB_cam1]
         }
 
@@ -131,7 +71,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": cams_sn["cam2"],
+            "sn": params['cam_sns'][2],
             "WB_auto_coeff_RGB": [kR_cam2, kG_cam2, kB_cam2]
         }
 
@@ -140,7 +80,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": cams_sn["cam3"],
+            "sn": params['cam_sns'][3],
             "WB_auto_coeff_RGB": [kR_cam3, kG_cam3, kB_cam3]
         }
 
@@ -160,23 +100,21 @@ while True:
             except socket.error:
                 pass
             counter += 1
-            cam0.get_image(img0)
-            co0 = img0.get_image_data_numpy()
+
+
+            co0 = cams[0].next_frame()
             cam0_l.append(co0)
             metadata_cam0["frame_timestamp"].append(time.monotonic())
 
-            cam1.get_image(img1)
-            co1 = img1.get_image_data_numpy()
+            co1 = cams[1].next_frame()
             cam1_l.append(co1)
             metadata_cam1["frame_timestamp"].append(time.monotonic())
             
-            cam2.get_image(img2)
-            co2 = img2.get_image_data_numpy()
+            co2 = cams[2].next_frame()
             cam2_l.append(co2)
             metadata_cam2["frame_timestamp"].append(time.monotonic())
 
-            cam3.get_image(img3)
-            co3 = img3.get_image_data_numpy()
+            co3 = cams[3].next_frame()
             cam3_l.append(co3)
             metadata_cam3["frame_timestamp"].append(time.monotonic())
             
