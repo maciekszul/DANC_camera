@@ -144,7 +144,7 @@ while True:
                 json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
         stop_x = time.monotonic()
         dump_time = stop_x - start_x
-        print("DATA DUMP IN:", dump_time)
+        print("DATA DUMPED IN:", dump_time)
         message_dump = "dumped_{}_rec_{}".format(dump_time, total_rec)
         s.send(message_dump.encode())
     if "exit" in data:
