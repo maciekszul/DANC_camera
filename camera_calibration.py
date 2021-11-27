@@ -1049,21 +1049,24 @@ if __name__ == '__main__':
 
     try:
         intrinsic = sys.argv[1] == '1'
-        print('RUNNING: intrinsic')
+        if intrinsic:
+            print('RUNNING: intrinsic')
     except:
-        intrinsic = False
+        intrinsic = True
 
     try:
         extrinsic = sys.argv[2] == '1'
-        print('RUNNING: extrinsic')
+        if extrinsic:
+            print('RUNNING: extrinsic')
     except:
-        extrinsic = False
+        extrinsic = True
 
     try:
         sba = sys.argv[3] == '1'
-        print('RUNNING: sba')
+        if sba:
+            print('RUNNING: sba')
     except:
-        sba = False
+        sba = True
 
     try:
         json_file = sys.argv[4]
