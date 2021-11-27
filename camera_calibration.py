@@ -346,6 +346,10 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     axis_size = 0.025  # This value is in meters
 
     board1, board2 = create_charuco_boards()
+    n_corners=54
+    board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(n_corners)), (6, 9)), 0),
+                                     (n_corners,))
+
     # board2_matching_ids=np.reshape(np.flip(np.reshape(np.array(range(63)),(7,9)),0),(63,))
     # board2_matching_ids=np.array(range(63))
 
@@ -404,26 +408,26 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
         [marker_corners1, marker_ids1, _] = cv2.aruco.detectMarkers(gray1, board1.dictionary,
                                                                     parameters=detect_parameters)
         cam1_board = None
-        # cam1_board_id=None
+        cam1_board_id=None
         if len(marker_corners1):
             if len(np.where(board1.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
                 cam1_board = board1
-                # cam1_board_id = 1
+                cam1_board_id = 1
             elif len(np.where(board2.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
                 cam1_board = board2
-                # cam1_board_id = 2
+                cam1_board_id = 2
 
         [marker_corners2, marker_ids2, _] = cv2.aruco.detectMarkers(gray2, board1.dictionary,
                                                                     parameters=detect_parameters)
         cam2_board = None
-        # cam2_board_id = None
+        cam2_board_id = None
         if len(marker_corners2):
             if len(np.where(board1.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
                 cam2_board = board1
-                # cam2_board_id = 1
+                cam2_board_id = 1
             elif len(np.where(board2.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
                 cam2_board = board2
-                # cam2_board_id = 2
+                cam2_board_id = 2
 
         # If found, add object points, image points (after refining them)
         ret1 = 0
@@ -484,30 +488,30 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 pts1 = []
                 pts2 = []
                 n_pts = 0
-                for board1_id in range(63):
-                    # board2_id=board2_matching_ids[board1_id]
+                for board1_id in range(n_corners):
+                    board2_id=board2_matching_ids[board1_id]
                     # if (len(np.where(charuco_ids1==id_idx)[0]) and len(np.where(charuco_ids2==board2_id)[0])):
-                    # if cam1_board_id==1:
-                    #    cam1_corner_id=board1_id
-                    # elif cam1_board_id==2:
-                    #    cam1_corner_id=board2_id
-                    # if cam2_board_id==1:
-                    #    cam2_corner_id=board1_id
-                    # elif cam2_board_id==2:
-                    #    cam2_corner_id=board2_id
+                    if cam1_board_id==1:
+                       cam1_corner_id=board1_id
+                    elif cam1_board_id==2:
+                       cam1_corner_id=board2_id
+                    if cam2_board_id==1:
+                       cam2_corner_id=board1_id
+                    elif cam2_board_id==2:
+                       cam2_corner_id=board2_id
 
-                    # if len(np.where(charuco_ids1==cam1_corner_id)[0]) and len(np.where(charuco_ids2 == cam2_corner_id)[0]):
-                    if len(np.where(charuco_ids1 == board1_id)[0]) and len(
-                            np.where(charuco_ids2 == board1_id)[0]):
-                        # corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
-                        corners.append(cam1_board.chessboardCorners[board1_id, :])
+                    if len(np.where(charuco_ids1==cam1_corner_id)[0]) and len(np.where(charuco_ids2 == cam2_corner_id)[0]):
+                    #if len(np.where(charuco_ids1 == board1_id)[0]) and len(
+                    #        np.where(charuco_ids2 == board1_id)[0]):
+                        corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
+                        #corners.append(cam1_board.chessboardCorners[board1_id, :])
 
-                        # c1_idx=np.where(charuco_ids1==cam1_corner_id)[0][0]
-                        c1_idx = np.where(charuco_ids1 == board1_id)[0][0]
+                        c1_idx=np.where(charuco_ids1==cam1_corner_id)[0][0]
+                        #c1_idx = np.where(charuco_ids1 == board1_id)[0][0]
                         pts1.append(charuco_corners_sub1[c1_idx, :, :])
 
-                        # c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
-                        c2_idx = np.where(charuco_ids2 == board1_id)[0][0]
+                        c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
+                        #c2_idx = np.where(charuco_ids2 == board1_id)[0][0]
                         pts2.append(charuco_corners_sub2[c2_idx, :, :])
                         n_pts = n_pts + 1
 
@@ -567,7 +571,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                                                                                 intrinsic_params,
                                                                                 extrinsic_params)
                     inside_corner_locations = np.zeros((63, 3))
-                    for idx in range(63):
+                    for idx in range(n_corners):
                         img_points = {}
                         for sn in cam_inside_corners.keys():
                             if len(cam_inside_corners[sn]):

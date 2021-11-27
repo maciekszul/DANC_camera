@@ -226,16 +226,22 @@ def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
 
 
 def create_charuco_boards(plot=False, save_template=False):
-    sqWidth = 10  # number of squares width
-    sqHeight = 8  # number of squares height
+    nSqWidth = 10  # number of squares width
+    nSqHeight = 7  # number of squares height
+
+    squareLength = 0.025 # 25mm
+    markerLength = 0.0175 # 17.5mm
 
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
-    board1 = cv2.aruco.CharucoBoard_create(sqWidth, sqHeight, 0.025, 0.0125, dictionary)
-    board2 = cv2.aruco.CharucoBoard_create(sqWidth, sqHeight, 0.025, 0.0125, dictionary)
+    board1 = cv2.aruco.CharucoBoard_create(nSqWidth, nSqHeight, squareLength, markerLength, dictionary)
+    board2 = cv2.aruco.CharucoBoard_create(nSqWidth, nSqHeight, squareLength, markerLength, dictionary)
     board2.ids = board2.ids + len(board1.ids)
 
-    imboard1 = board1.draw((991, 792))
-    imboard2 = board2.draw((991, 792))
+    pixels_per_mm=6
+    pixW=int(nSqWidth*squareLength*1000*pixels_per_mm)
+    pixH=int(nSqHeight*squareLength*1000*pixels_per_mm)
+    imboard1 = board1.draw((pixW, pixH))
+    imboard2 = board2.draw((pixW, pixH))
     if plot:
         fig = plt.figure()
         ax = fig.add_subplot(2, 1, 1)
@@ -314,24 +320,7 @@ def drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids):
     return cubeTemplate
 
 
-def plot_chessboard_3d(ax, cam_outside_corners, cam_inside_corners, intrinsic_params, extrinsic_params):
-    outside_corner_locations = np.zeros((4, 3))
-    for idx in range(4):
-        img_points = {}
-        for sn in cam_outside_corners.keys():
-            if len(cam_outside_corners[sn]):
-                img_points[sn] = cam_outside_corners[sn][idx, :]
-        [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points, intrinsic_params,
-                                                                extrinsic_params)
-    inside_corner_locations = np.zeros((63, 3))
-    for idx in range(63):
-        img_points = {}
-        for sn in cam_inside_corners.keys():
-            if len(cam_inside_corners[sn]):
-                img_points[sn] = cam_inside_corners[sn][idx, :]
-        [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points, intrinsic_params,
-                                                               extrinsic_params)
-
+def plot_chessboard_3d(ax, outside_corner_locations, inside_corner_locations, intrinsic_params, extrinsic_params):
     if outside_corner_locations.shape[0] > 0:
         ax.plot([outside_corner_locations[0, 0], outside_corner_locations[1, 0]],
                 [outside_corner_locations[0, 1], outside_corner_locations[1, 1]],
