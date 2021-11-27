@@ -46,7 +46,8 @@ try:
             cam_data=cam.next_frame()
             ci0 = quick_resize(cam_data, 0.4, f_size[0], f_size[1])
             cam_data = cv2.putText(cam_data, "cam %s" % cam.sn, (10, 20), font, 1, (0, 0, 0), 1)
-            cam_datas.append(cam_data)
+            resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
+            cam_datas.append(resized)
 
         final_frame = cv2.vconcat(
             [cv2.hconcat([cam_datas[0], cam_datas[1]]), cv2.hconcat([cam_datas[2], cam_datas[3]])]
