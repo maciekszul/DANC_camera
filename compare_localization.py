@@ -102,7 +102,7 @@ while True:
         for cam in cams:
 
             # Get image
-            cam_data = cam.next_frame()
+            cam_data = cam.next_frame()[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
             d = intrinsic_params[cam.sn]['d']
