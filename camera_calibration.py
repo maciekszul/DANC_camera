@@ -1038,9 +1038,15 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
     :return: whether or not to accept calibration
     """
 
+    cam_list = {}
+    for cam in cams:
+        cam_list[cam.sn] = []
+
     axis_size = 0.025  # This value is in meters
 
     board = DoubleCharucoBoard()
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -1107,6 +1113,8 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
             resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
             cam_datas.append(resized)
 
+            cam_list[cam.sn].append(cam_data[:, :, :3])
+
         ax.clear()
         outside_corner_locations = np.zeros((4, 3))
         for idx in range(4):
@@ -1172,6 +1180,24 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
         elif key == ord('n'):
             accept = False
             break
+
+    if accept:
+        # Save videos with frames used for sparse bundle adjustment
+        for cam in cams:
+            vid_list = cam_list[cam.sn]
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "verify_cam{}_{}.avi".format(
+                cam.sn,
+                timestamp
+            )
+            cam_vid = cv2.VideoWriter(
+                filename,
+                fourcc,
+                float(fps),
+                f_size
+            )
+            [cam_vid.write(i) for i in vid_list]
+            cam_vid.release()
 
     return accept
 
