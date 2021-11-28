@@ -23,8 +23,12 @@ shutter = shtr_spd(fps)
 gain = 5
 f_size = (1280, 1024)
 
+intrinsic_file = sys.argv[1]
+extrinsic_file = sys.argv[2]
+sba_file = sys.argv[3]
+
 try:
-    json_file = sys.argv[1]
+    json_file = sys.argv[4]
     print("USING: ", json_file)
 except:
     json_file = "settings.json"
@@ -37,17 +41,17 @@ with open(json_file) as settings_file:
 cams = init_camera_sources(params, fps, shutter, gain)
 
 # Load intrinsic parameters
-handle = open('intrinsic_params.pickle', "rb")
+handle = open(intrinsic_file, "rb")
 intrinsic_params = pickle.load(handle)
 handle.close()
 
 # Load extrinsic parameters
-handle = open('extrinsic_params.pickle', "rb")
+handle = open(extrinsic_file, "rb")
 extrinsic_params = pickle.load(handle)
 handle.close()
 
 # Load SBA extrinsic parameters
-handle = open('extrinsic_sba_params.pickle', "rb")
+handle = open(sba_file, "rb")
 extrinsic_sba_params = pickle.load(handle)
 handle.close()
 
@@ -115,7 +119,7 @@ while True:
                                                                       parameters=detect_parameters)
             cam_board = board.get_detected_board(marker_ids)
 
-            if len(marker_corners)>0 and cam_board is not None:
+            if cam_board is not None and len(marker_corners) > 0:
                 [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
                                                                                           gray, cam_board)
                 if ret > 0:
@@ -165,8 +169,8 @@ while True:
             [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
                                                                     intrinsic_params,
                                                                     extrinsic_params)
-        inside_corner_locations = np.zeros((63, 3))
-        for idx in range(63):
+        inside_corner_locations = np.zeros((board.n_square_corners, 3))
+        for idx in range(board.n_square_corners):
             img_points = {}
             for sn in cam_inside_corners.keys():
                 if len(cam_inside_corners[sn]):
@@ -184,30 +188,30 @@ while True:
                  max(zlim1[1], np.max(outside_corner_locations[:, 2]))]
 
         # SBA
-        outside_corner_locations = np.zeros((4, 3))
-        for idx in range(4):
-            img_points = {}
-            for sn in cam_outside_corners.keys():
-                if len(cam_outside_corners[sn]):
-                    img_points[sn] = cam_outside_corners[sn][idx, :]
-            [outside_corner_locations[idx, :], pairs_used] = locate_sba(list(img_points.keys()), img_points,
-                                                                        intrinsic_params, extrinsic_params)
-        inside_corner_locations = np.zeros((63, 3))
-        for idx in range(63):
-            img_points = {}
-            for sn in cam_inside_corners.keys():
-                if len(cam_inside_corners[sn]):
-                    img_points[sn] = cam_inside_corners[sn][idx, :]
-            [inside_corner_locations[idx, :], pairs_used] = locate_sba(list(img_points.keys()), img_points,
-                                                                       intrinsic_params, extrinsic_params)
-
-        board.plot_3d(ax2, outside_corner_locations, inside_corner_locations)
-        xlim2 = [min(xlim2[0], np.min(outside_corner_locations[:, 0])),
-                 max(xlim2[1], np.max(outside_corner_locations[:, 0]))]
-        ylim2 = [min(ylim2[0], np.min(outside_corner_locations[:, 1])),
-                 max(ylim2[1], np.max(outside_corner_locations[:, 1]))]
-        zlim2 = [min(zlim2[0], np.min(outside_corner_locations[:, 2])),
-                 max(zlim2[1], np.max(outside_corner_locations[:, 2]))]
+        # outside_corner_locations = np.zeros((4, 3))
+        # for idx in range(4):
+        #     img_points = {}
+        #     for sn in cam_outside_corners.keys():
+        #         if len(cam_outside_corners[sn]):
+        #             img_points[sn] = cam_outside_corners[sn][idx, :]
+        #     [outside_corner_locations[idx, :], pairs_used] = locate_sba(list(img_points.keys()), img_points,
+        #                                                                 intrinsic_params, extrinsic_params)
+        # inside_corner_locations = np.zeros((board.n_square_corners, 3))
+        # for idx in range(board.n_square_corners):
+        #     img_points = {}
+        #     for sn in cam_inside_corners.keys():
+        #         if len(cam_inside_corners[sn]):
+        #             img_points[sn] = cam_inside_corners[sn][idx, :]
+        #     [inside_corner_locations[idx, :], pairs_used] = locate_sba(list(img_points.keys()), img_points,
+        #                                                                intrinsic_params, extrinsic_params)
+        #
+        # board.plot_3d(ax2, outside_corner_locations, inside_corner_locations)
+        # xlim2 = [min(xlim2[0], np.min(outside_corner_locations[:, 0])),
+        #          max(xlim2[1], np.max(outside_corner_locations[:, 0]))]
+        # ylim2 = [min(ylim2[0], np.min(outside_corner_locations[:, 1])),
+        #          max(ylim2[1], np.max(outside_corner_locations[:, 1]))]
+        # zlim2 = [min(zlim2[0], np.min(outside_corner_locations[:, 2])),
+        #          max(zlim2[1], np.max(outside_corner_locations[:, 2]))]
 
         # DLT
         outside_corner_locations = np.zeros((4, 3))
@@ -218,8 +222,8 @@ while True:
                     img_points[sn] = cam_outside_corners[sn][idx, :]
             [outside_corner_locations[idx, :], pairs_used] = locate_dlt(list(img_points.keys()), img_points,
                                                                         intrinsic_params, extrinsic_params)
-        inside_corner_locations = np.zeros((63, 3))
-        for idx in range(63):
+        inside_corner_locations = np.zeros((board.n_square_corners, 3))
+        for idx in range(board.n_square_corners):
             img_points = {}
             for sn in cam_inside_corners.keys():
                 if len(cam_inside_corners[sn]):

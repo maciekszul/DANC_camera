@@ -1,13 +1,18 @@
 import json
 import pickle
 import sys
+from datetime import datetime
 
 import numpy as np
 
 from utilities.calib_tools import bundle_adjust_points_and_extrinsics
 
+intrinsic_file = sys.argv[1]
+extrinsic_file = sys.argv[2]
+sba_file = sys.argv[3]
+
 try:
-    json_file = sys.argv[1]
+    json_file = sys.argv[4]
     print("USING: ", json_file)
 except:
     json_file = "settings.json"
@@ -18,12 +23,12 @@ with open(json_file) as settings_file:
     params = json.load(settings_file)
 
 # Open intrinsic parameters
-handle = open('intrinsic_params.pickle', "rb")
+handle = open(intrinsic_file, "rb")
 intrinsic_params = pickle.load(handle)
 handle.close()
 
 # Open extrinsic parameters
-handle = open('extrinsic_params.pickle', "rb")
+handle = open(extrinsic_file, "rb")
 extrinsic_params = pickle.load(handle)
 handle.close()
 
@@ -37,6 +42,8 @@ k_arr = np.array([intrinsic_params[x]['k'] for x in params['cam_sns']])
 d_arr = np.array([intrinsic_params[x]['d'] for x in params['cam_sns']])
 r_arr = np.array([extrinsic_params[x]['r'] for x in params['cam_sns']])
 t_arr = np.array([extrinsic_params[x]['t'] for x in params['cam_sns']])
+
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
 # Run SBA
 obj_pts, r_arr, t_arr, res = bundle_adjust_points_and_extrinsics(np.squeeze(sba_data['points_2d']),
@@ -53,10 +60,12 @@ for cam_idx, sn in enumerate(params['cam_sns']):
         'r': np.squeeze(r_arr[cam_idx, :, :]),
         't': t_arr[cam_idx, :, :]
     }
+
+filename = "extrinsic_sba_params_{}.pickle".format(timestamp)
 pickle.dump(
     extrinsic_sba_params,
     open(
-        "extrinsic_sba_params.pickle",
+        filename,
         "wb",
     ),
 )
