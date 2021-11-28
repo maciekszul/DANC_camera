@@ -826,53 +826,60 @@ def intrinsic_cam_calibration(cam):
 
 
 def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
+    cam_list = {}
+    for cam in cams:
+        cam_list[cam.sn] = []
+
     # Initialize ArUco Tracking
     aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
     axis_length = 0.045  # This value is in meters
 
     board = create_aruco_cube()
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    xlim = [0, 1]
-    ylim = [0, 1]
-    zlim = [0, 1]
-    ax.set_xlim(xlim[0], xlim[1])
-    ax.set_ylim(ylim[0], ylim[1])
-    ax.set_zlim(zlim[0], zlim[1])
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    plt.draw()
-    plt.pause(0.001)
-    print('Accept final calibration (y/n)?')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection="3d")
+    # xlim = [0, 1]
+    # ylim = [0, 1]
+    # zlim = [0, 1]
+    # ax.set_xlim(xlim[0], xlim[1])
+    # ax.set_ylim(ylim[0], ylim[1])
+    # ax.set_zlim(zlim[0], zlim[1])
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
+    # ax.set_zlabel("Z")
+    # plt.draw()
+    # plt.pause(0.001)
+    print('Accept rectification (y/n)?')
 
     while True:
         cam_datas = []
         cam_coords = {}
 
         for cam in cams:
-            cam_data = cam.next_frame()[:,:,:3].astype(np.uint8)
+            cam_data = cam.next_frame()
+            vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
             d = intrinsic_params[cam.sn]['d']
 
             gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-            corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=detect_parameters)
+            corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=detect_parameters)
 
-            cam_coords[cam.sn] = np.array(corners)
-            if len(corners):
-                cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
-                cam_data = cv2.aruco.drawDetectedMarkers(cam_data.copy(), corners, ids)
-                rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, axis_length, k, d, None, None)
-                for i in range(rvec.shape[0]):
-                    cam_data = aruco.drawAxis(cam_data, k, d, rvec[i, :, :], tvec[i, :, :], axis_length)
+            pose, rvec, tvec = aruco.estimatePoseBoard(corners, ids, board, k, d, rvec=None,
+                tvec=None)
+            if pose:
+                vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, axis_length)
+                vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
 
             width = int(f_size[0] * .5)
             height = int(f_size[1] * .5)
             dim = (width, height)
-            resized = cv2.resize(cam_data, dim, interpolation=cv2.INTER_AREA)
+            resized = cv2.resize(vcam_data, dim, interpolation=cv2.INTER_AREA)
             cam_datas.append(resized)
+
+            cam_list[cam.sn].append(cam_data[:, :, :3])
 
         # ax.clear()
         # [location, pairs_used] = locate(cam_sns, cam_coords, intrinsic_params, extrinsic_params)
@@ -884,14 +891,14 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
         #     xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
         #     ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
         #     zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
-        ax.set_xlim(xlim[0], xlim[1])
-        ax.set_ylim(ylim[0], ylim[1])
-        ax.set_zlim(zlim[0], zlim[1])
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        plt.draw()
-        plt.pause(0.001)
+        # ax.set_xlim(xlim[0], xlim[1])
+        # ax.set_ylim(ylim[0], ylim[1])
+        # ax.set_zlim(zlim[0], zlim[1])
+        # ax.set_xlabel("X")
+        # ax.set_ylabel("Y")
+        # ax.set_zlabel("Z")
+        # plt.draw()
+        # plt.pause(0.001)
 
         if len(cam_datas) == 1:
             data = cam_datas[0]
@@ -914,7 +921,25 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
     plt.draw()
     plt.pause(0.001)
     cv2.destroyAllWindows()
-    return accept
+
+    # Save videos with frames used for sparse bundle adjustment
+    for cam in cams:
+        vid_list = cam_list[cam.sn]
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        filename = "rectify_cam{}_{}.avi".format(
+            cam.sn,
+            timestamp
+        )
+        cam_vid = cv2.VideoWriter(
+            filename,
+            fourcc,
+            float(fps),
+            f_size
+        )
+        [cam_vid.write(i) for i in vid_list]
+        cam_vid.release()
+
+
 
 def verify_calibration(cams, intrinsic_params, extrinsic_params):
     """
