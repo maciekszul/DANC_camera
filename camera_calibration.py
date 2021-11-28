@@ -10,7 +10,7 @@ import pickle
 import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
-from utilities.calib_tools import locate, DoubleCharucoBoard, create_aruco_cube
+from utilities.calib_tools import locate, DoubleCharucoBoard, create_aruco_cube, locate_dlt
 from utilities.tools import quick_resize
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
@@ -843,24 +843,28 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection="3d")
-    # xlim = [0, 1]
-    # ylim = [0, 1]
-    # zlim = [0, 1]
-    # ax.set_xlim(xlim[0], xlim[1])
-    # ax.set_ylim(ylim[0], ylim[1])
-    # ax.set_zlim(zlim[0], zlim[1])
-    # ax.set_xlabel("X")
-    # ax.set_ylabel("Y")
-    # ax.set_zlabel("Z")
-    # plt.draw()
-    # plt.pause(0.001)
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    xlim = [-0.001, 0.001]
+    ylim = [-0.001, 0.001]
+    zlim = [-0.001, 0.001]
+    ax.set_xlim(xlim[0], xlim[1])
+    ax.set_ylim(ylim[0], ylim[1])
+    ax.set_zlim(zlim[0], zlim[1])
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
     print('Accept rectification (y/n)?')
 
     while True:
         cam_datas = []
-        cam_coords = {}
+        cam_coords = {
+            'origin': {},
+            'x_axis': {},
+            'y_axis': {},
+            'z_axis': {}
+        }
 
         for cam in cams:
             cam_data = cam.next_frame()
@@ -878,6 +882,27 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
                 vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, axis_length)
                 vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
 
+                [rmat, _] = cv2.Rodrigues(rvec)
+                origin=np.zeros((3,1))
+                pt_origin=np.matmul(rmat, origin)+tvec
+                [origin_projected,_]=cv2.projectPoints(pt_origin, (0, 0, 0), (0, 0, 0), k, d)
+                cam_coords['origin'][cam.sn]=np.squeeze(origin_projected)
+
+                x_axis=np.array([[axis_length],[0],[0]])
+                pt_x = np.matmul(rmat, x_axis) + tvec
+                [x_projected,_] = cv2.projectPoints(pt_x, (0, 0, 0), (0, 0, 0), k, d)
+                cam_coords['x_axis'][cam.sn] = np.squeeze(x_projected)
+
+                y_axis = np.array([[0], [axis_length], [0]])
+                pt_y = np.matmul(rmat, y_axis) + tvec
+                [y_projected,_] = cv2.projectPoints(pt_y, (0, 0, 0), (0, 0, 0), k, d)
+                cam_coords['y_axis'][cam.sn] = np.squeeze(y_projected)
+
+                z_axis = np.array([[0], [0], [axis_length]])
+                pt_z = np.matmul(rmat, z_axis) + tvec
+                [z_projected,_] = cv2.projectPoints(pt_z, (0, 0, 0), (0, 0, 0), k, d)
+                cam_coords['z_axis'][cam.sn] = np.squeeze(z_projected)
+
             width = int(f_size[0] * .5)
             height = int(f_size[1] * .5)
             dim = (width, height)
@@ -886,33 +911,77 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
 
-        # ax.clear()
-        # [location, pairs_used] = locate(cam_sns, cam_coords, intrinsic_params, extrinsic_params)
-        # if pairs_used > 0:
-        #     xs = location[:, 0]
-        #     ys = location[:, 1]
-        #     zs = location[:, 2]
-        #     ax.scatter(xs, ys, zs, c='g', marker='o', s=1)
-        #     xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
-        #     ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
-        #     zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
-        # ax.set_xlim(xlim[0], xlim[1])
-        # ax.set_ylim(ylim[0], ylim[1])
-        # ax.set_zlim(zlim[0], zlim[1])
-        # ax.set_xlabel("X")
-        # ax.set_ylabel("Y")
-        # ax.set_zlabel("Z")
-        # plt.draw()
-        # plt.pause(0.001)
+        ax.clear()
+        [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
+                                                   intrinsic_params, extrinsic_params)
+        if pairs_used > 0:
+            xs = origin_location[:, 0]
+            ys = origin_location[:, 1]
+            zs = origin_location[:, 2]
+            ax.scatter(xs, ys, zs, c='k', marker='o', s=1)
+            xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
+            ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
+            zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
 
-        if len(cam_datas) == 1:
-            data = cam_datas[0]
-        elif len(cam_datas) == 2:
-            data = np.hstack([cam_datas[0], cam_datas[1]])
+        [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
+                                              intrinsic_params, extrinsic_params)
+        if pairs_used > 0:
+            ax.plot([origin_location[0,0], x_location[0,0]],
+                    [origin_location[0,1], x_location[0,1]],
+                    zs=[origin_location[0,2], x_location[0,2]], c='b')
+            xlim = [min(xlim[0], x_location[0,0]), max(xlim[1], x_location[0,0])]
+            ylim = [min(ylim[0], x_location[0,1]), max(ylim[1], x_location[0,1])]
+            zlim = [min(zlim[0], x_location[0,2]), max(zlim[1], x_location[0,2])]
+
+        [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
+                                              intrinsic_params, extrinsic_params)
+        if pairs_used > 0:
+            ax.plot([origin_location[0, 0], y_location[0, 0]],
+                    [origin_location[0, 1], y_location[0, 1]],
+                    zs=[origin_location[0, 2], y_location[0, 2]], c='g')
+            xlim = [min(xlim[0], y_location[0,0]), max(xlim[1], y_location[0,0])]
+            ylim = [min(ylim[0], y_location[0,1]), max(ylim[1], y_location[0,1])]
+            zlim = [min(zlim[0], y_location[0,2]), max(zlim[1], y_location[0,2])]
+
+        [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
+                                              intrinsic_params, extrinsic_params)
+        if pairs_used > 0:
+            ax.plot([origin_location[0, 0], z_location[0, 0]],
+                    [origin_location[0, 1], z_location[0, 1]],
+                    zs=[origin_location[0, 2], z_location[0, 2]], c='r')
+            xlim = [min(xlim[0], z_location[0, 0]), max(xlim[1], z_location[0, 0])]
+            ylim = [min(ylim[0], z_location[0, 1]), max(ylim[1], z_location[0, 1])]
+            zlim = [min(zlim[0], z_location[0, 2]), max(zlim[1], z_location[0, 2])]
+
+        ax.set_xlim(xlim[0], xlim[1])
+        ax.set_ylim(ylim[0], ylim[1])
+        ax.set_zlim(zlim[0], zlim[1])
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
+
+        ratio = resized.shape[0] / plt_img.shape[0]
+        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
+
+        if len(cam_datas) == 2:
+            data = np.hstack([resized_plt, cam_datas[0], cam_datas[1]])
         elif len(cam_datas) == 3:
-            data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]), np.hstack([cam_datas[2], cam_datas[2]])])
+            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, blank_cam, cam_datas[2]])])
         else:
-            data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]), np.hstack([cam_datas[2], cam_datas[3]])])
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
 
         cv2.imshow("cam", data)
         key = cv2.waitKey(1) & 0xFF
@@ -924,6 +993,21 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
             break
     # plt.close('all')
     cv2.destroyAllWindows()
+
+    rectify_params={
+        'origin': origin_location,
+        'x_axis': x_location,
+        'y_axis': y_location,
+        'z_axis': z_location
+    }
+    filename = "rectify_params_{}.pickle".format(timestamp)
+    pickle.dump(
+        rectify_params,
+        open(
+            filename,
+            "wb",
+        ),
+    )
 
     # Save videos with frames used for sparse bundle adjustment
     for cam in cams:
@@ -942,9 +1026,10 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
         [cam_vid.write(i) for i in vid_list]
         cam_vid.release()
 
+    return rectify_params
 
 
-def verify_calibration(cams, intrinsic_params, extrinsic_params):
+def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params):
     """
     Verify calibration
     :param cams: list of camera objects
@@ -1029,16 +1114,16 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
             for sn in cam_outside_corners.keys():
                 if len(cam_outside_corners[sn]):
                     img_points[sn] = cam_outside_corners[sn][idx, :]
-            [outside_corner_locations[idx, :], _] = locate(list(img_points.keys()), img_points,
-                                                           intrinsic_params, extrinsic_params)
+            [outside_corner_locations[idx, :], _] = locate_dlt(list(img_points.keys()), img_points,
+                                                               intrinsic_params, extrinsic_params, rectify_params)
         inside_corner_locations = np.zeros((board.n_square_corners, 3))
         for idx in range(board.n_square_corners):
             img_points = {}
             for sn in cam_inside_corners.keys():
                 if len(cam_inside_corners[sn]):
                     img_points[sn] = cam_inside_corners[sn][idx, :]
-            [inside_corner_locations[idx, :], _] = locate(list(img_points.keys()), img_points,
-                                                          intrinsic_params, extrinsic_params)
+            [inside_corner_locations[idx, :], _] = locate_dlt(list(img_points.keys()), img_points,
+                                                              intrinsic_params, extrinsic_params, rectify_params)
 
         board.plot_3d(ax, outside_corner_locations, inside_corner_locations)
 
@@ -1131,10 +1216,10 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
         if rectify == '1':
             rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params)
             cv2.destroyAllWindows()
-        #else:
-        #    handle = open(rectify, "rb")
-        #    rectify_params = pickle.load(handle)
-        #    handle.close()
+        else:
+            handle = open(rectify, "rb")
+            rectify_params = pickle.load(handle)
+            handle.close()
 
         # Collect data for SBA
         if collect_sba:
@@ -1143,7 +1228,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Test calibration
         if parameters['type'] == 'online':
-            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params)
+            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
             cv2.destroyAllWindows()
     # except:
     #    pass

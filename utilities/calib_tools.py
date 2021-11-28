@@ -144,7 +144,7 @@ def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
     return [location, pairs_used]
 
 
-def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
+def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params, rectify_params):
     A = []
     cameras_used = 0
     location = np.zeros((1, 3))
@@ -168,6 +168,8 @@ def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
 
         location = Vh[-1, 0:3] / Vh[-1, 3]
         location = np.reshape(location, (1, 3))
+
+        # Apply rectification
 
     return [location, cameras_used]
 
