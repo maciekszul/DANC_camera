@@ -10,7 +10,7 @@ import pickle
 import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
-from utilities.calib_tools import locate, DoubleCharucoBoard
+from utilities.calib_tools import locate, DoubleCharucoBoard, create_aruco_cube
 from utilities.tools import quick_resize
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
@@ -825,6 +825,97 @@ def intrinsic_cam_calibration(cam):
     return rpe, k, d, cam_list
 
 
+def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
+    # Initialize ArUco Tracking
+    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
+    axis_length = 0.045  # This value is in meters
+
+    board = create_aruco_cube()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    xlim = [0, 1]
+    ylim = [0, 1]
+    zlim = [0, 1]
+    ax.set_xlim(xlim[0], xlim[1])
+    ax.set_ylim(ylim[0], ylim[1])
+    ax.set_zlim(zlim[0], zlim[1])
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    plt.draw()
+    plt.pause(0.001)
+    print('Accept final calibration (y/n)?')
+
+    while True:
+        cam_datas = []
+        cam_coords = {}
+
+        for cam in cams:
+            cam_data = cam.next_frame()[:,:,:3].astype(np.uint8)
+
+            k = intrinsic_params[cam.sn]['k']
+            d = intrinsic_params[cam.sn]['d']
+
+            gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
+            corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=detect_parameters)
+
+            cam_coords[cam.sn] = np.array(corners)
+            if len(corners):
+                cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
+                cam_data = cv2.aruco.drawDetectedMarkers(cam_data.copy(), corners, ids)
+                rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, axis_length, k, d, None, None)
+                for i in range(rvec.shape[0]):
+                    cam_data = aruco.drawAxis(cam_data, k, d, rvec[i, :, :], tvec[i, :, :], axis_length)
+
+            width = int(f_size[0] * .5)
+            height = int(f_size[1] * .5)
+            dim = (width, height)
+            resized = cv2.resize(cam_data, dim, interpolation=cv2.INTER_AREA)
+            cam_datas.append(resized)
+
+        # ax.clear()
+        # [location, pairs_used] = locate(cam_sns, cam_coords, intrinsic_params, extrinsic_params)
+        # if pairs_used > 0:
+        #     xs = location[:, 0]
+        #     ys = location[:, 1]
+        #     zs = location[:, 2]
+        #     ax.scatter(xs, ys, zs, c='g', marker='o', s=1)
+        #     xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
+        #     ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
+        #     zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
+        ax.set_xlim(xlim[0], xlim[1])
+        ax.set_ylim(ylim[0], ylim[1])
+        ax.set_zlim(zlim[0], zlim[1])
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        plt.draw()
+        plt.pause(0.001)
+
+        if len(cam_datas) == 1:
+            data = cam_datas[0]
+        elif len(cam_datas) == 2:
+            data = np.hstack([cam_datas[0], cam_datas[1]])
+        elif len(cam_datas) == 3:
+            data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]), np.hstack([cam_datas[2], cam_datas[2]])])
+        else:
+            data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]), np.hstack([cam_datas[2], cam_datas[3]])])
+
+        cv2.imshow("cam", data)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('y'):
+            accept = True
+            break
+        elif key == ord('n'):
+            accept = False
+            break
+    plt.close('all')
+    plt.draw()
+    plt.pause(0.001)
+    cv2.destroyAllWindows()
+    return accept
+
 def verify_calibration(cams, intrinsic_params, extrinsic_params):
     """
     Verify calibration
@@ -972,12 +1063,13 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
     return accept
 
 
-def run_calibration(parameters, run_intrinsic=True, run_extrinsic=True, collect_sba=True):
+def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True):
     """
     Run all calibration
     :param parameters: Acquisition parameters
-    :param run_intrinsic: Run instrinsic calibration
-    :param run_extrinsic: Run extrinsic calibration
+    :param intrinsic: If 1, run instrinsic calibration, otherwise load from file
+    :param extrinsic: If 1, run extrinsic calibration, otherwise load from file
+    :param rectify: If 1, run rectification, otherwise load from file
     :param collect_sba: Collect data for SBA
     """
     cams = None
@@ -990,21 +1082,30 @@ def run_calibration(parameters, run_intrinsic=True, run_extrinsic=True, collect_
     while not calib_finished:
 
         # Intrinsic calibration
-        if run_intrinsic:
+        if intrinsic == '1':
             intrinsic_params = run_intrinsic_calibration(parameters, cams)
             cv2.destroyAllWindows()
         else:
-            handle = open('intrinsic_params.pickle', "rb")
+            handle = open(intrinsic, "rb")
             intrinsic_params = pickle.load(handle)
             handle.close()
 
         # Extrinsic calibration
-        if run_extrinsic:
+        if extrinsic == '1':
             extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params)
             cv2.destroyAllWindows()
         else:
-            handle = open('extrinsic_params.pickle', "rb")
+            handle = open(extrinsic, "rb")
             extrinsic_params = pickle.load(handle)
+            handle.close()
+
+        # Rectification
+        if rectify == '1':
+            rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params)
+            cv2.destroyAllWindows()
+        else:
+            handle = open(rectify, "rb")
+            rectify_params = pickle.load(handle)
             handle.close()
 
         # Collect data for SBA
@@ -1027,28 +1128,35 @@ def run_calibration(parameters, run_intrinsic=True, run_extrinsic=True, collect_
 if __name__ == '__main__':
 
     try:
-        intrinsic = sys.argv[1] == '1'
-        if intrinsic:
-            print('RUNNING: intrinsic')
+        intrinsic = sys.argv[1]
+        print('USING: %s' % intrinsic)
     except:
-        intrinsic = True
+        intrinsic = '1'
+        print('RUNNING: intrinsic')
 
     try:
-        extrinsic = sys.argv[2] == '1'
-        if extrinsic:
-            print('RUNNING: extrinsic')
+        extrinsic = sys.argv[2]
+        print('USING: %s' % extrinsic)
     except:
-        extrinsic = True
+        extrinsic = '1'
+        print('RUNNING: extrinsic')
 
     try:
-        sba = sys.argv[3] == '1'
-        if sba:
-            print('RUNNING: sba')
+        rectify = sys.argv[3]
+        print('USING: %s' % rectify)
+    except:
+        rectify = '1'
+        print('RUNNING: rectify')
+
+    try:
+        sba = sys.argv[4] == '1'
     except:
         sba = True
+    if sba == '1':
+        print('RUNNING: sba')
 
     try:
-        json_file = sys.argv[4]
+        json_file = sys.argv[5]
         print("USING: ", json_file)
     except:
         json_file = "settings.json"
@@ -1058,4 +1166,4 @@ if __name__ == '__main__':
     with open(json_file) as settings_file:
         params = json.load(settings_file)
 
-    run_calibration(params, run_intrinsic=intrinsic, run_extrinsic=extrinsic, collect_sba=sba)
+    run_calibration(params, intrinsic, extrinsic, rectify, collect_sba=sba)
