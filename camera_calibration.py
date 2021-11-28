@@ -1,4 +1,5 @@
 import json
+import os.path
 import sys
 from datetime import datetime
 
@@ -28,7 +29,7 @@ gain = 5
 f_size = (1280, 1024)
 
 
-def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
+def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_dir):
     """
     Collect data for sparse bundle adjustment
     :param parameters: Acquisition parameters
@@ -39,8 +40,6 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
 
     if parameters['type'] == 'offline':
         cams = init_file_sources(parameters, 'sba')
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     # Initialize array
     cam_list = {}
@@ -81,7 +80,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             cam_datas.append(cam_data)
 
         for cam_idx, cam in enumerate(cams):
-            cam_data=cam_datas[cam_idx]
+            cam_data = cam_datas[cam_idx]
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
@@ -147,8 +146,6 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
             vcam_datas.append(resized)
 
-
-
         # If chessboard visible in more than one camera
         for board_id in range(board.n_square_corners):
             visible_cams = []
@@ -209,7 +206,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     camera_indices = np.array(camera_indices, dtype=np.int)
 
     # Save data for offline sparse bundle adjustment
-    filename = "sba_data_{}.pickle".format(timestamp)
+    filename = "sba_data.pickle"
     pickle.dump(
         {
             'points_2d': points_2d,
@@ -218,7 +215,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             'camera_indices': camera_indices
         },
         open(
-            filename,
+            os.path.join(out_dir,filename),
             "wb",
         ),
     )
@@ -227,12 +224,9 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     for cam in cams:
         vid_list = cam_list[cam.sn]
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "sba_cam{}_{}.avi".format(
-            cam.sn,
-            timestamp
-        )
+        filename = "sba_cam{}.avi".format(cam.sn)
         cam_vid = cv2.VideoWriter(
-            filename,
+            os.path.join(out_dir, 'videos', filename),
             fourcc,
             float(fps),
             f_size
@@ -241,7 +235,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
         cam_vid.release()
 
 
-def run_extrinsic_calibration(parameters, cams, intrinsic_params):
+def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
     """
     Run extrinsic calibration for each pair of cameras
     :param parameters: Acquisition parameters
@@ -249,8 +243,6 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :return: extrinsic calibration parameters for each camera
     """
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     # Rotation matrix for first camera - all others are relative to it
     extrinsic_params = {
@@ -271,7 +263,7 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
             cam2_sn = parameters['cam_sns'][cam2_idx]
 
             if parameters['type'] == 'offline':
-                cams = init_file_sources(parameters, 'extrinsic_%s-%s' % (cam1_sn, cam2_sn))
+                cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'extrinsic_%s-%s' % (cam1_sn, cam2_sn)))
                 cam1 = cams[0]
                 cam2 = cams[1]
             else:
@@ -296,14 +288,13 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
 
             # Save frames used to calibrate for cam1
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "extrinsic_{}-{}_cam{}_{}.avi".format(
+            filename = "extrinsic_{}-{}_cam{}.avi".format(
                 cam1_sn,
                 cam2_sn,
-                cam1_sn,
-                timestamp
+                cam1_sn
             )
             cam1_vid = cv2.VideoWriter(
-                filename,
+                os.path.join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -313,14 +304,13 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
 
             # Save frames used to calibrate for cam2
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "extrinsic_{}-{}_cam{}_{}.avi".format(
+            filename = "extrinsic_{}-{}_cam{}.avi".format(
                 cam1_sn,
                 cam2_sn,
-                cam2_sn,
-                timestamp
+                cam2_sn
             )
             cam2_vid = cv2.VideoWriter(
-                filename,
+                os.path.join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -329,11 +319,11 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
             cam2_vid.release()
 
     # Save extrinsic calibration parameters
-    filename = "extrinsic_params_{}.pickle".format(timestamp)
+    filename = "extrinsic_params.pickle"
     pickle.dump(
         extrinsic_params,
         open(
-            filename,
+            os.path.join(out_dir, filename),
             "wb",
         ),
     )
@@ -491,7 +481,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                             len(np.where(charuco_ids2 == cam2_corner_id)[0]):
                         corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
 
-                        c1_idx=np.where(charuco_ids1==cam1_corner_id)[0][0]
+                        c1_idx = np.where(charuco_ids1 == cam1_corner_id)[0][0]
                         pts1.append(charuco_corners_sub1[c1_idx, :, :])
 
                         c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
@@ -506,7 +496,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
 
                     if len(objpoints) >= 6:
                         # Stereo calibration - keep intrinsic parameters fixed
-                        rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn], imgpoints[cam2.sn],
+                        rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn],
+                                                                          imgpoints[cam2.sn],
                                                                           k1, d1, k2, d2, img_shape1,
                                                                           flags=cv2.CALIB_FIX_INTRINSIC,
                                                                           criteria=stereo_term_crit)
@@ -517,7 +508,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         rms = rms / np.mean(n_pts)
 
                         # If there is a jump in RMSE - exclude this point
-                        if rms>10 or (len(rmss) > 0 and rms - rmss[-1] > 1):
+                        if rms > 10 or (len(rmss) > 0 and rms - rmss[-1] > 1):
                             objpoints.pop()
                             imgpoints[cam1.sn].pop()
                             imgpoints[cam2.sn].pop()
@@ -540,8 +531,10 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         ax1.clear()
                         cam_outside_corners = {}
                         cam_inside_corners = {}
-                        cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1, rvec1, tvec1)
-                        cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2, rvec2, tvec2)
+                        cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1,
+                                                                                                  rvec1, tvec1)
+                        cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2,
+                                                                                                  rvec2, tvec2)
 
                         outside_corner_locations = np.zeros((4, 3))
                         for idx in range(4):
@@ -601,7 +594,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
         # Resize for display
         resized1 = quick_resize(vcam1_data, 0.5, f_size[0], f_size[1])
         resized2 = quick_resize(vcam2_data, 0.5, f_size[0], f_size[1])
-        ratio = resized1.shape[0]/plt_img.shape[0]
+        ratio = resized1.shape[0] / plt_img.shape[0]
         resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
 
         # Show camera images side by side
@@ -636,7 +629,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     return rms, r, t, cam_list
 
 
-def run_intrinsic_calibration(parameters, cams):
+def run_intrinsic_calibration(parameters, cams, out_dir):
     """
     Run intrinsic calibration for each camera
     :param parameters: Acquisition parameters
@@ -646,9 +639,7 @@ def run_intrinsic_calibration(parameters, cams):
     intrinsic_params = {}
 
     if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, 'intrinsic')
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'intrinsic'))
 
     # Calibrate each camera
     for cam in cams:
@@ -663,12 +654,9 @@ def run_intrinsic_calibration(parameters, cams):
 
         # Save frames for calibration
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "intrinsic_cam{}_{}.avi".format(
-            cam.sn,
-            timestamp
-        )
+        filename = "intrinsic_cam{}.avi".format(cam.sn)
         cam_vid = cv2.VideoWriter(
-            filename,
+            os.path.join(out_dir, 'videos', filename),
             fourcc,
             float(fps),
             f_size
@@ -677,11 +665,11 @@ def run_intrinsic_calibration(parameters, cams):
         cam_vid.release()
 
     # Save intrinsic parameters
-    filename = "intrinsic_params_{}.pickle".format(timestamp)
+    filename = "intrinsic_params.pickle"
     pickle.dump(
         intrinsic_params,
         open(
-            filename,
+            os.path.join(out_dir, filename),
             "wb",
         ),
     )
@@ -830,10 +818,13 @@ def intrinsic_cam_calibration(cam):
     return rpe, k, d, cam_list
 
 
-def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
+def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_dir):
     cam_list = {}
     for cam in cams:
         cam_list[cam.sn] = []
+
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'rectify'))
 
     # Initialize ArUco Tracking
     aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
@@ -841,19 +832,29 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
 
     board = create_aruco_cube()
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    fig1 = plt.figure()
+    ax1 = fig1.add_subplot(111, projection="3d")
+    xlim1 = [-0.001, 0.001]
+    ylim1 = [-0.001, 0.001]
+    zlim1 = [-0.001, 0.001]
+    ax1.set_xlim(xlim1[0], xlim1[1])
+    ax1.set_ylim(ylim1[0], ylim1[1])
+    ax1.set_zlim(zlim1[0], zlim1[1])
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.set_zlabel("Z")
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    xlim = [-0.001, 0.001]
-    ylim = [-0.001, 0.001]
-    zlim = [-0.001, 0.001]
-    ax.set_xlim(xlim[0], xlim[1])
-    ax.set_ylim(ylim[0], ylim[1])
-    ax.set_zlim(zlim[0], zlim[1])
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
+    fig2 = plt.figure()
+    ax2 = fig2.add_subplot(111, projection="3d")
+    xlim2 = [-0.001, 0.001]
+    ylim2 = [-0.001, 0.001]
+    zlim2 = [-0.001, 0.001]
+    ax2.set_xlim(xlim2[0], xlim2[1])
+    ax2.set_ylim(ylim2[0], ylim2[1])
+    ax2.set_zlim(zlim2[0], zlim2[1])
+    ax2.set_xlabel("X")
+    ax2.set_ylabel("Y")
+    ax2.set_zlabel("Z")
 
     print('Accept rectification (y/n)?')
 
@@ -877,30 +878,36 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
             corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=detect_parameters)
 
             pose, rvec, tvec = aruco.estimatePoseBoard(corners, ids, board, k, d, rvec=None,
-                tvec=None)
+                                                       tvec=None)
             if pose:
+                vcam_data = cv2.putText(vcam_data, 'x', (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (0, 0, 255), 2)
+                vcam_data = cv2.putText(vcam_data, 'y', (20, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (0, 255, 0), 2)
+                vcam_data = cv2.putText(vcam_data, 'z', (30, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (255, 0, 0), 2)
                 vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, axis_length)
                 vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
 
                 [rmat, _] = cv2.Rodrigues(rvec)
-                origin=np.zeros((3,1))
-                pt_origin=np.matmul(rmat, origin)+tvec
-                [origin_projected,_]=cv2.projectPoints(pt_origin, (0, 0, 0), (0, 0, 0), k, d)
-                cam_coords['origin'][cam.sn]=np.squeeze(origin_projected)
+                origin = np.zeros((3, 1))
+                pt_origin = np.matmul(rmat, origin) + tvec
+                [origin_projected, _] = cv2.projectPoints(pt_origin, (0, 0, 0), (0, 0, 0), k, d)
+                cam_coords['origin'][cam.sn] = np.squeeze(origin_projected)
 
-                x_axis=np.array([[axis_length],[0],[0]])
+                x_axis = np.array([[axis_length], [0], [0]])
                 pt_x = np.matmul(rmat, x_axis) + tvec
-                [x_projected,_] = cv2.projectPoints(pt_x, (0, 0, 0), (0, 0, 0), k, d)
+                [x_projected, _] = cv2.projectPoints(pt_x, (0, 0, 0), (0, 0, 0), k, d)
                 cam_coords['x_axis'][cam.sn] = np.squeeze(x_projected)
 
                 y_axis = np.array([[0], [axis_length], [0]])
                 pt_y = np.matmul(rmat, y_axis) + tvec
-                [y_projected,_] = cv2.projectPoints(pt_y, (0, 0, 0), (0, 0, 0), k, d)
+                [y_projected, _] = cv2.projectPoints(pt_y, (0, 0, 0), (0, 0, 0), k, d)
                 cam_coords['y_axis'][cam.sn] = np.squeeze(y_projected)
 
                 z_axis = np.array([[0], [0], [axis_length]])
                 pt_z = np.matmul(rmat, z_axis) + tvec
-                [z_projected,_] = cv2.projectPoints(pt_z, (0, 0, 0), (0, 0, 0), k, d)
+                [z_projected, _] = cv2.projectPoints(pt_z, (0, 0, 0), (0, 0, 0), k, d)
                 cam_coords['z_axis'][cam.sn] = np.squeeze(z_projected)
 
             width = int(f_size[0] * .5)
@@ -911,77 +918,142 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
 
-        ax.clear()
+        ax1.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params)
         if pairs_used > 0:
             xs = origin_location[:, 0]
             ys = origin_location[:, 1]
             zs = origin_location[:, 2]
-            ax.scatter(xs, ys, zs, c='k', marker='o', s=1)
-            xlim = [min(xlim[0], np.min(xs)), max(xlim[1], np.max(xs))]
-            ylim = [min(ylim[0], np.min(ys)), max(ylim[1], np.max(ys))]
-            zlim = [min(zlim[0], np.min(zs)), max(zlim[1], np.max(zs))]
+            ax1.scatter(xs, ys, zs, c='k', marker='o', s=1)
+            xlim1 = [min(xlim1[0], np.min(xs)), max(xlim1[1], np.max(xs))]
+            ylim1 = [min(ylim1[0], np.min(ys)), max(ylim1[1], np.max(ys))]
+            zlim1 = [min(zlim1[0], np.min(zs)), max(zlim1[1], np.max(zs))]
 
         [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
                                               intrinsic_params, extrinsic_params)
         if pairs_used > 0:
-            ax.plot([origin_location[0,0], x_location[0,0]],
-                    [origin_location[0,1], x_location[0,1]],
-                    zs=[origin_location[0,2], x_location[0,2]], c='b')
-            xlim = [min(xlim[0], x_location[0,0]), max(xlim[1], x_location[0,0])]
-            ylim = [min(ylim[0], x_location[0,1]), max(ylim[1], x_location[0,1])]
-            zlim = [min(zlim[0], x_location[0,2]), max(zlim[1], x_location[0,2])]
+            ax1.plot([origin_location[0, 0], x_location[0, 0]],
+                     [origin_location[0, 1], x_location[0, 1]],
+                     zs=[origin_location[0, 2], x_location[0, 2]], c='b')
+            xlim1 = [min(xlim1[0], x_location[0, 0]), max(xlim1[1], x_location[0, 0])]
+            ylim1 = [min(ylim1[0], x_location[0, 1]), max(ylim1[1], x_location[0, 1])]
+            zlim1 = [min(zlim1[0], x_location[0, 2]), max(zlim1[1], x_location[0, 2])]
 
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params)
         if pairs_used > 0:
-            ax.plot([origin_location[0, 0], y_location[0, 0]],
-                    [origin_location[0, 1], y_location[0, 1]],
-                    zs=[origin_location[0, 2], y_location[0, 2]], c='g')
-            xlim = [min(xlim[0], y_location[0,0]), max(xlim[1], y_location[0,0])]
-            ylim = [min(ylim[0], y_location[0,1]), max(ylim[1], y_location[0,1])]
-            zlim = [min(zlim[0], y_location[0,2]), max(zlim[1], y_location[0,2])]
+            ax1.plot([origin_location[0, 0], y_location[0, 0]],
+                     [origin_location[0, 1], y_location[0, 1]],
+                     zs=[origin_location[0, 2], y_location[0, 2]], c='g')
+            xlim1 = [min(xlim1[0], y_location[0, 0]), max(xlim1[1], y_location[0, 0])]
+            ylim1 = [min(ylim1[0], y_location[0, 1]), max(ylim1[1], y_location[0, 1])]
+            zlim1 = [min(zlim1[0], y_location[0, 2]), max(zlim1[1], y_location[0, 2])]
 
         [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
                                               intrinsic_params, extrinsic_params)
         if pairs_used > 0:
-            ax.plot([origin_location[0, 0], z_location[0, 0]],
-                    [origin_location[0, 1], z_location[0, 1]],
-                    zs=[origin_location[0, 2], z_location[0, 2]], c='r')
-            xlim = [min(xlim[0], z_location[0, 0]), max(xlim[1], z_location[0, 0])]
-            ylim = [min(ylim[0], z_location[0, 1]), max(ylim[1], z_location[0, 1])]
-            zlim = [min(zlim[0], z_location[0, 2]), max(zlim[1], z_location[0, 2])]
+            ax1.plot([origin_location[0, 0], z_location[0, 0]],
+                     [origin_location[0, 1], z_location[0, 1]],
+                     zs=[origin_location[0, 2], z_location[0, 2]], c='r')
+            xlim1 = [min(xlim1[0], z_location[0, 0]), max(xlim1[1], z_location[0, 0])]
+            ylim1 = [min(ylim1[0], z_location[0, 1]), max(ylim1[1], z_location[0, 1])]
+            zlim1 = [min(zlim1[0], z_location[0, 2]), max(zlim1[1], z_location[0, 2])]
 
-        ax.set_xlim(xlim[0], xlim[1])
-        ax.set_ylim(ylim[0], ylim[1])
-        ax.set_zlim(zlim[0], zlim[1])
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
+        ax1.set_xlim(xlim1[0], xlim1[1])
+        ax1.set_ylim(ylim1[0], ylim1[1])
+        ax1.set_zlim(zlim1[0], zlim1[1])
+        ax1.set_xlabel("X")
+        ax1.set_ylabel("Y")
+        ax1.set_zlabel("Z")
+
+        rectify_params = {
+            'origin': origin_location,
+            'x_axis': x_location,
+            'y_axis': y_location,
+            'z_axis': z_location
+        }
+
+        ax2.clear()
+        [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
+                                                   intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        if pairs_used > 0:
+            xs = origin_location[:, 0]
+            ys = origin_location[:, 1]
+            zs = origin_location[:, 2]
+            ax2.scatter(xs, ys, zs, c='k', marker='o', s=1)
+            xlim2 = [min(xlim2[0], np.min(xs)), max(xlim2[1], np.max(xs))]
+            ylim2 = [min(ylim2[0], np.min(ys)), max(ylim2[1], np.max(ys))]
+            zlim2 = [min(zlim2[0], np.min(zs)), max(zlim2[1], np.max(zs))]
+
+        [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        if pairs_used > 0:
+            ax2.plot([origin_location[0, 0], x_location[0, 0]],
+                     [origin_location[0, 1], x_location[0, 1]],
+                     zs=[origin_location[0, 2], x_location[0, 2]], c='b')
+            xlim2 = [min(xlim2[0], x_location[0, 0]), max(xlim2[1], x_location[0, 0])]
+            ylim2 = [min(ylim2[0], x_location[0, 1]), max(ylim2[1], x_location[0, 1])]
+            zlim2 = [min(zlim2[0], x_location[0, 2]), max(zlim2[1], x_location[0, 2])]
+
+        [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        if pairs_used > 0:
+            ax2.plot([origin_location[0, 0], y_location[0, 0]],
+                     [origin_location[0, 1], y_location[0, 1]],
+                     zs=[origin_location[0, 2], y_location[0, 2]], c='g')
+            xlim2 = [min(xlim2[0], y_location[0, 0]), max(xlim2[1], y_location[0, 0])]
+            ylim2 = [min(ylim2[0], y_location[0, 1]), max(ylim2[1], y_location[0, 1])]
+            zlim2 = [min(zlim2[0], y_location[0, 2]), max(zlim2[1], y_location[0, 2])]
+
+        [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        if pairs_used > 0:
+            ax2.plot([origin_location[0, 0], z_location[0, 0]],
+                     [origin_location[0, 1], z_location[0, 1]],
+                     zs=[origin_location[0, 2], z_location[0, 2]], c='r')
+            xlim2 = [min(xlim2[0], z_location[0, 0]), max(xlim2[1], z_location[0, 0])]
+            ylim2 = [min(ylim2[0], z_location[0, 1]), max(ylim2[1], z_location[0, 1])]
+            zlim2 = [min(zlim2[0], z_location[0, 2]), max(zlim2[1], z_location[0, 2])]
+
+        ax2.set_xlim(xlim2[0], xlim2[1])
+        ax2.set_ylim(ylim2[0], ylim2[1])
+        ax2.set_zlim(zlim2[0], zlim2[1])
+        ax2.set_xlabel("X")
+        ax2.set_ylabel("Y")
+        ax2.set_zlabel("Z")
 
         # redraw the canvas
-        fig.canvas.draw()
+        fig1.canvas.draw()
         # convert canvas to image
-        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        plt_img1 = np.frombuffer(fig1.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img1 = plt_img1.reshape(fig1.canvas.get_width_height()[::-1] + (3,))
         # img is rgb, convert to opencv's default bgr
-        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
+        plt_img1 = cv2.cvtColor(plt_img1, cv2.COLOR_RGB2BGR)
 
-        ratio = resized.shape[0] / plt_img.shape[0]
-        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
+        ratio = resized.shape[0] / plt_img1.shape[0]
+        resized_plt1 = quick_resize(plt_img1, ratio, plt_img1.shape[1], plt_img1.shape[0])
+
+        fig2.canvas.draw()
+        # convert canvas to image
+        plt_img2 = np.frombuffer(fig2.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img2 = plt_img2.reshape(fig2.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img2 = cv2.cvtColor(plt_img2, cv2.COLOR_RGB2BGR)
+
+        ratio = resized.shape[0] / plt_img2.shape[0]
+        resized_plt2 = quick_resize(plt_img2, ratio, plt_img2.shape[1], plt_img2.shape[0])
+
+        blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
 
         if len(cam_datas) == 2:
-            data = np.hstack([resized_plt, cam_datas[0], cam_datas[1]])
+            data = np.vstack([np.hstack([resized_plt1, cam_datas[0]]), np.hstack([resized_plt2, cam_datas[1]])])
         elif len(cam_datas) == 3:
-            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
-            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
-            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
-                              np.hstack([blank_plt, blank_cam, cam_datas[2]])])
+            data = np.vstack([np.hstack([resized_plt1, cam_datas[0], cam_datas[1]]),
+                              np.hstack([resized_plt2, blank_cam, cam_datas[2]])])
         else:
-            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
-            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
-                              np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
+            data = np.vstack([np.hstack([resized_plt1, cam_datas[0], cam_datas[1]]),
+                              np.hstack([resized_plt2, cam_datas[2], cam_datas[3]])])
 
         cv2.imshow("cam", data)
         key = cv2.waitKey(1) & 0xFF
@@ -994,17 +1066,11 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
     # plt.close('all')
     cv2.destroyAllWindows()
 
-    rectify_params={
-        'origin': origin_location,
-        'x_axis': x_location,
-        'y_axis': y_location,
-        'z_axis': z_location
-    }
-    filename = "rectify_params_{}.pickle".format(timestamp)
+    filename = "rectify_params.pickle"
     pickle.dump(
         rectify_params,
         open(
-            filename,
+            os.path.join(out_dir, filename),
             "wb",
         ),
     )
@@ -1013,12 +1079,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
     for cam in cams:
         vid_list = cam_list[cam.sn]
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "rectify_cam{}_{}.avi".format(
-            cam.sn,
-            timestamp
-        )
+        filename = "rectify_cam{}.avi".format(cam.sn)
         cam_vid = cv2.VideoWriter(
-            filename,
+            os.path.join(out_dir,'videos',filename),
             fourcc,
             float(fps),
             f_size
@@ -1029,7 +1092,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
     return rectify_params
 
 
-def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params):
+def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
     """
     Verify calibration
     :param cams: list of camera objects
@@ -1045,8 +1108,6 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
     axis_size = 0.025  # This value is in meters
 
     board = DoubleCharucoBoard()
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -1186,12 +1247,9 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
         for cam in cams:
             vid_list = cam_list[cam.sn]
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "verify_cam{}_{}.avi".format(
-                cam.sn,
-                timestamp
-            )
+            filename = "verify_cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                filename,
+                os.paht.join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -1215,6 +1273,10 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
     if parameters['type'] == 'online':
         cams = init_camera_sources(parameters, fps, shutter, gain)
 
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    out_dir=os.path.join('./calibrations',timestamp)
+    os.mkdirs(os.path.join(out_dir,'videos'), exist_ok=True)
+
     # Run until final acceptance
     calib_finished = False
     # try:
@@ -1222,7 +1284,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Intrinsic calibration
         if intrinsic == '1':
-            intrinsic_params = run_intrinsic_calibration(parameters, cams)
+            intrinsic_params = run_intrinsic_calibration(parameters, cams, out_dir)
             cv2.destroyAllWindows()
         else:
             handle = open(intrinsic, "rb")
@@ -1231,7 +1293,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Extrinsic calibration
         if extrinsic == '1':
-            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params)
+            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir)
             cv2.destroyAllWindows()
         else:
             handle = open(extrinsic, "rb")
@@ -1240,7 +1302,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Rectification
         if rectify == '1':
-            rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params)
+            rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_dir)
             cv2.destroyAllWindows()
         else:
             handle = open(rectify, "rb")
@@ -1249,12 +1311,12 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Collect data for SBA
         if collect_sba:
-            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params)
+            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_dir)
             cv2.destroyAllWindows()
 
         # Test calibration
         if parameters['type'] == 'online':
-            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params)
+            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir)
             cv2.destroyAllWindows()
     # except:
     #    pass
