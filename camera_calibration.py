@@ -79,6 +79,9 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             else:
                 break
             cam_datas.append(cam_data)
+
+        for cam_idx, cam in enumerate(cams):
+            cam_data=cam_datas[cam_idx]
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
@@ -134,6 +137,8 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
                             cam_corners[cam.sn] = pts
                             cam_corner_ids[cam.sn] = np.array(ids)
 
+            cam_list[cam.sn].append(cam_data[:, :, :3])
+
             # Num frames
             vcam_data = cv2.putText(vcam_data, '%d frames' % len(cam_list[cam.sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
                                     2, (0, 255, 0), 2)
@@ -142,7 +147,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
             vcam_datas.append(resized)
 
-            cam_list[cam.sn].append(cam_datas[cam_idx][:, :, :3])
+
 
         # If chessboard visible in more than one camera
         for board_id in range(board.n_square_corners):
@@ -917,9 +922,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params):
         elif key == ord('n'):
             accept = False
             break
-    plt.close('all')
-    plt.draw()
-    plt.pause(0.001)
+    # plt.close('all')
     cv2.destroyAllWindows()
 
     # Save videos with frames used for sparse bundle adjustment
@@ -1128,10 +1131,10 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
         if rectify == '1':
             rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params)
             cv2.destroyAllWindows()
-        else:
-            handle = open(rectify, "rb")
-            rectify_params = pickle.load(handle)
-            handle.close()
+        #else:
+        #    handle = open(rectify, "rb")
+        #    rectify_params = pickle.load(handle)
+        #    handle.close()
 
         # Collect data for SBA
         if collect_sba:
