@@ -154,8 +154,8 @@ def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
             point = camera_coords[sn]
             RT = np.concatenate([extrinsic_params[sn]['r'], extrinsic_params[sn]['t']], axis=-1)
             P = intrinsic_params[sn]['k'] @ RT
-            A.append(point[0, 1] * P[2, :] - P[1, :])
-            A.append(P[0, :] - point[0, 0] * P[2, :])
+            A.append(point[1] * P[2, :] - P[1, :])
+            A.append(P[0, :] - point[0] * P[2, :])
             cameras_used = cameras_used + 1
     if cameras_used > 1:
         A = np.array(A)
@@ -284,10 +284,11 @@ class DoubleCharucoBoard:
         return outside_projected, inside_projected
 
     def get_detected_board(self, marker_ids):
-        if len(np.where(self.board1.ids == marker_ids[0])[0]) > 0:
-            return self.board1
-        elif len(np.where(self.board2.ids == marker_ids[0])[0]) > 0:
-            return self.board2
+        if marker_ids is not None and len(marker_ids)>0:
+            if len(np.where(self.board1.ids == marker_ids[0])[0]) > 0:
+                return self.board1
+            elif len(np.where(self.board2.ids == marker_ids[0])[0]) > 0:
+                return self.board2
         return None
 
     def get_corresponding_corner_id(self, corner_id, cam_board):
