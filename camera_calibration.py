@@ -1,5 +1,6 @@
 import json
 import sys
+from datetime import datetime
 
 import numpy as np
 from cv2 import aruco
@@ -38,6 +39,8 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
 
     if parameters['type'] == 'offline':
         cams = init_file_sources(parameters, 'sba')
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     # Initialize array
     cam_list = {}
@@ -87,8 +90,10 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             # Find the chess board corners - fast checking
             [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
                                                                       parameters=detect_parameters)
-            if len(marker_corners):
-                cam_board = board.get_detected_board(marker_ids)
+
+            cam_board = board.get_detected_board(marker_ids)
+
+            if cam_board is not None and len(marker_corners) > 0:
 
                 [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
                                                                                           gray, cam_board)
@@ -199,6 +204,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     camera_indices = np.array(camera_indices, dtype=np.int)
 
     # Save data for offline sparse bundle adjustment
+    filename = "sba_data_{}.pickle".format(timestamp)
     pickle.dump(
         {
             'points_2d': points_2d,
@@ -207,7 +213,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             'camera_indices': camera_indices
         },
         open(
-            "sba_data.pickle",
+            filename,
             "wb",
         ),
     )
@@ -216,8 +222,12 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     for cam in cams:
         vid_list = cam_list[cam.sn]
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        filename = "sba_cam{}_{}.avi".format(
+            cam.sn,
+            timestamp
+        )
         cam_vid = cv2.VideoWriter(
-            "sba_cam_{}.avi".format(cam.sn),
+            filename,
             fourcc,
             float(fps),
             f_size
@@ -234,6 +244,8 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
     :param intrinsic_params: intrinsic calibration parameters for each camera
     :return: extrinsic calibration parameters for each camera
     """
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     # Rotation matrix for first camera - all others are relative to it
     extrinsic_params = {
@@ -266,6 +278,8 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
             rms, r, t, cam_list = extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsic_params)
             print(f"{rms:.5f} pixels")
 
+            extrinsic_params['%s-%s_rms' % (cam1_sn, cam2_sn)] = rms
+
             # https://en.wikipedia.org/wiki/Camera_resectioning#Extrinsic_parameters
             # T is the world origin position in the camera coordinates.
             # The world position of the camera is C = -(R^-1)@T.
@@ -277,8 +291,14 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
 
             # Save frames used to calibrate for cam1
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "extrinsic_{}-{}_cam{}_{}.avi".format(
+                cam1_sn,
+                cam2_sn,
+                cam1_sn,
+                timestamp
+            )
             cam1_vid = cv2.VideoWriter(
-                "extrinsic_{}-{}_cam_{}.avi".format(cam1_sn, cam2_sn, cam1_sn),
+                filename,
                 fourcc,
                 float(fps),
                 f_size
@@ -288,8 +308,14 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
 
             # Save frames used to calibrate for cam2
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "extrinsic_{}-{}_cam{}_{}.avi".format(
+                cam1_sn,
+                cam2_sn,
+                cam2_sn,
+                timestamp
+            )
             cam2_vid = cv2.VideoWriter(
-                "extrinsic_{}-{}_cam_{}.avi".format(cam1_sn, cam2_sn, cam2_sn),
+                filename,
                 fourcc,
                 float(fps),
                 f_size
@@ -298,10 +324,11 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params):
             cam2_vid.release()
 
     # Save extrinsic calibration parameters
+    filename = "extrinsic_params_{}.pickle".format(timestamp)
     pickle.dump(
         extrinsic_params,
         open(
-            "extrinsic_params.pickle",
+            filename,
             "wb",
         ),
     )
@@ -394,7 +421,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
 
         # If found, add object points, image points (after refining them)
         ret1 = 0
-        if len(marker_corners1) and cam1_board is not None:
+        if cam1_board is not None and len(marker_corners1) > 0:
             [ret1, charuco_corners1, charuco_ids1] = cv2.aruco.interpolateCornersCharuco(marker_corners1, marker_ids1,
                                                                                          gray1, cam1_board)
             if ret1 > 0:
@@ -406,7 +433,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 vcam1_data = cv2.aruco.drawDetectedCornersCharuco(vcam1_data.copy(), charuco_corners_sub1, charuco_ids1)
 
         ret2 = 0
-        if len(marker_corners2) > 0 and cam2_board is not None:
+        if cam2_board is not None and len(marker_corners2) > 0:
             [ret2, charuco_corners2, charuco_ids2] = cv2.aruco.interpolateCornersCharuco(marker_corners2, marker_ids2,
                                                                                          gray2, cam2_board)
 
@@ -472,80 +499,81 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                     imgpoints[cam1.sn].append(np.array(pts1).astype(np.float32))
                     imgpoints[cam2.sn].append(np.array(pts2).astype(np.float32))
 
-                    # Stereo calibration - keep intrinsic parameters fixed
-                    rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn], imgpoints[cam2.sn],
-                                                                      k1, d1, k2, d2, img_shape1,
-                                                                      flags=cv2.CALIB_FIX_INTRINSIC,
-                                                                      criteria=stereo_term_crit)
-                    # Mean RMSE
-                    n_pts = []
-                    for obj in objpoints:
-                        n_pts.append(obj.shape[0])
-                    rms = rms / np.mean(n_pts)
+                    if len(objpoints) >= 6:
+                        # Stereo calibration - keep intrinsic parameters fixed
+                        rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn], imgpoints[cam2.sn],
+                                                                          k1, d1, k2, d2, img_shape1,
+                                                                          flags=cv2.CALIB_FIX_INTRINSIC,
+                                                                          criteria=stereo_term_crit)
+                        # Mean RMSE
+                        n_pts = []
+                        for obj in objpoints:
+                            n_pts.append(obj.shape[0])
+                        rms = rms / np.mean(n_pts)
 
-                    # If there is a jump in RMSE - exclude this point
-                    if len(rmss) > 0 and rms - rmss[-1] > 5:
-                        objpoints.pop()
-                        imgpoints[cam1.sn].pop()
-                        imgpoints[cam2.sn].pop()
+                        # If there is a jump in RMSE - exclude this point
+                        if rms>10 or (len(rmss) > 0 and rms - rmss[-1] > 1):
+                            objpoints.pop()
+                            imgpoints[cam1.sn].pop()
+                            imgpoints[cam2.sn].pop()
 
-                    # Otherwise, update lists and extrinsic parameters
-                    else:
-                        rmss.append(rms)
-                        r = r_new
-                        t = t_new
+                        # Otherwise, update lists and extrinsic parameters
+                        else:
+                            rmss.append(rms)
+                            r = r_new
+                            t = t_new
 
-                        extrinsic_params[cam2.sn] = {
-                            'r': r @ extrinsic_params[cam1.sn]['r'],
-                            't': r @ extrinsic_params[cam1.sn]['t'] + t
-                        }
+                            extrinsic_params[cam2.sn] = {
+                                'r': r @ extrinsic_params[cam1.sn]['r'],
+                                't': r @ extrinsic_params[cam1.sn]['t'] + t
+                            }
 
-                        cam_list[cam1.sn].append(cam1_data[:, :, :3])
-                        cam_list[cam2.sn].append(cam2_data[:, :, :3])
+                            cam_list[cam1.sn].append(cam1_data[:, :, :3])
+                            cam_list[cam2.sn].append(cam2_data[:, :, :3])
 
-                    # Triangulate
-                    ax1.clear()
-                    cam_outside_corners = {}
-                    cam_inside_corners = {}
-                    cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1, rvec1, tvec1)
-                    cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2, rvec2, tvec2)
+                        # Triangulate
+                        ax1.clear()
+                        cam_outside_corners = {}
+                        cam_inside_corners = {}
+                        cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1, rvec1, tvec1)
+                        cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2, rvec2, tvec2)
 
-                    outside_corner_locations = np.zeros((4, 3))
-                    for idx in range(4):
-                        img_points = {}
-                        for sn in cam_outside_corners.keys():
-                            if len(cam_outside_corners[sn]):
-                                img_points[sn] = cam_outside_corners[sn][idx, :]
-                        [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                                intrinsic_params,
-                                                                                extrinsic_params)
-                    inside_corner_locations = np.zeros((63, 3))
-                    for idx in range(board.n_square_corners):
-                        img_points = {}
-                        for sn in cam_inside_corners.keys():
-                            if len(cam_inside_corners[sn]):
-                                img_points[sn] = cam_inside_corners[sn][idx, :]
-                        [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                               intrinsic_params,
-                                                                               extrinsic_params)
+                        outside_corner_locations = np.zeros((4, 3))
+                        for idx in range(4):
+                            img_points = {}
+                            for sn in cam_outside_corners.keys():
+                                if len(cam_outside_corners[sn]):
+                                    img_points[sn] = cam_outside_corners[sn][idx, :]
+                            [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                                    intrinsic_params,
+                                                                                    extrinsic_params)
+                        inside_corner_locations = np.zeros((board.n_square_corners, 3))
+                        for idx in range(board.n_square_corners):
+                            img_points = {}
+                            for sn in cam_inside_corners.keys():
+                                if len(cam_inside_corners[sn]):
+                                    img_points[sn] = cam_inside_corners[sn][idx, :]
+                            [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                                   intrinsic_params,
+                                                                                   extrinsic_params)
 
-                    board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
-                    xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
-                            max(xlim[1], np.max(outside_corner_locations[:, 0]))]
-                    ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
-                            max(ylim[1], np.max(outside_corner_locations[:, 1]))]
-                    zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
-                            max(zlim[1], np.max(outside_corner_locations[:, 2]))]
-                    ax1.set_xlim(xlim[0], xlim[1])
-                    ax1.set_ylim(ylim[0], ylim[1])
-                    ax1.set_zlim(zlim[0], zlim[1])
-                    ax1.set_xlabel("X")
-                    ax1.set_ylabel("Y")
-                    ax1.set_zlabel("Z")
+                        board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
+                        # xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
+                        #         max(xlim[1], np.max(outside_corner_locations[:, 0]))]
+                        # ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
+                        #         max(ylim[1], np.max(outside_corner_locations[:, 1]))]
+                        # zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
+                        #         max(zlim[1], np.max(outside_corner_locations[:, 2]))]
+                        # ax1.set_xlim(xlim[0], xlim[1])
+                        # ax1.set_ylim(ylim[0], ylim[1])
+                        # ax1.set_zlim(zlim[0], zlim[1])
+                        ax1.set_xlabel("X")
+                        ax1.set_ylabel("Y")
+                        ax1.set_zlabel("Z")
 
         # Plot RMSE
         ax2.clear()
-        ax2.plot(range(len(imgpoints[cam1.sn])), rmss)
+        ax2.plot(range(len(rmss)), rmss)
         ax2.set_xlabel("frame")
         ax2.set_ylabel("RMS")
 
@@ -615,6 +643,8 @@ def run_intrinsic_calibration(parameters, cams):
     if parameters['type'] == 'offline':
         cams = init_file_sources(parameters, 'intrinsic')
 
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
     # Calibrate each camera
     for cam in cams:
         print('Calibrating camera %s' % cam.sn)
@@ -622,13 +652,18 @@ def run_intrinsic_calibration(parameters, cams):
         print("Mean re-projection error: %.3f pixels " % rpe)
         intrinsic_params[cam.sn] = {
             'k': k,
-            'd': d
+            'd': d,
+            'rpe': rpe
         }
 
         # Save frames for calibration
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        filename = "intrinsic_cam{}_{}.avi".format(
+            cam.sn,
+            timestamp
+        )
         cam_vid = cv2.VideoWriter(
-            "intrinsic_cam_{}.avi".format(cam.sn),
+            filename,
             fourcc,
             float(fps),
             f_size
@@ -637,10 +672,11 @@ def run_intrinsic_calibration(parameters, cams):
         cam_vid.release()
 
     # Save intrinsic parameters
+    filename = "intrinsic_params_{}.pickle".format(timestamp)
     pickle.dump(
         intrinsic_params,
         open(
-            "intrinsic_params.pickle",
+            filename,
             "wb",
         ),
     )
@@ -697,7 +733,7 @@ def intrinsic_cam_calibration(cam):
         cam_board = board.get_detected_board(marker_ids)
 
         # If found, add object points, image points (after refining them)
-        if len(marker_corners) > 0 and cam_board is not None:
+        if cam_board is not None and len(marker_corners) > 0:
             img_shape = gray.shape[::-1]
 
             [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids, gray,
@@ -725,7 +761,7 @@ def intrinsic_cam_calibration(cam):
                                                                        flags=intrinsic_flags,
                                                                        criteria=intrinsic_term_crit)
                     # If there is a jump in RPE - exclude this point
-                    if len(rpes) > 0 and rpe - rpes[-1] > 1:
+                    if len(rpes) > 0 and rpe - rpes[-1] > 0.5:
                         all_corners.pop()
                         all_ids.pop()
                     # Otherwise, update lists and undistort rectify map
@@ -779,7 +815,7 @@ def intrinsic_cam_calibration(cam):
     # Final camera calibration
     rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners,
                                                        charucoIds=all_ids,
-                                                       board=board,
+                                                       board=cam_board,
                                                        imageSize=img_shape,
                                                        cameraMatrix=None,
                                                        distCoeffs=None,
@@ -835,7 +871,7 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
                                                                       parameters=detect_parameters)
             cam_board = board.get_detected_board(marker_ids)
 
-            if len(marker_corners)>0 and cam_board is not None:
+            if cam_board is not None and len(marker_corners) > 0:
 
                 [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
                                                                                           gray, cam_board)
@@ -876,8 +912,8 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
                     img_points[sn] = cam_outside_corners[sn][idx, :]
             [outside_corner_locations[idx, :], _] = locate(list(img_points.keys()), img_points,
                                                            intrinsic_params, extrinsic_params)
-        inside_corner_locations = np.zeros((63, 3))
-        for idx in range(63):
+        inside_corner_locations = np.zeros((board.n_square_corners, 3))
+        for idx in range(board.n_square_corners):
             img_points = {}
             for sn in cam_inside_corners.keys():
                 if len(cam_inside_corners[sn]):
