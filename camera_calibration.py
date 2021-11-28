@@ -9,7 +9,7 @@ import pickle
 import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
-from utilities.calib_tools import create_charuco_boards, plot_chessboard_3d, project_chessboard, locate
+from utilities.calib_tools import locate, DoubleCharucoBoard
 from utilities.tools import quick_resize
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
@@ -48,7 +48,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
     points_2d = []
     camera_indices = []
 
-    board1, board2 = create_charuco_boards()
+    board = DoubleCharucoBoard()
     axis_size = 0.025  # This value is in meters
 
     print('Accept SBA data (y/n)?')
@@ -85,14 +85,10 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
 
             # Find the chess board corners - fast checking
-            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board1.dictionary,
+            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
                                                                       parameters=detect_parameters)
             if len(marker_corners):
-                cam_board = None
-                if len(np.where(board1.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
-                    cam_board = board1
-                elif len(np.where(board2.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
-                    cam_board = board2
+                cam_board = board.get_detected_board(marker_ids)
 
                 [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
                                                                                           gray, cam_board)
@@ -123,18 +119,13 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
 
                             pts = []
                             ids = []
-                            for board_id in range(63):
-                                # board2_id=board2_matching_ids[board1_id]
-                                # if (len(np.where(charucoIds1==id_idx)[0]) and len(np.where(charucoIds2==board2_id)[0])):
-                                # if cam1_board_id==1:
-                                #    cam1_corner_id=board1_id
-                                # elif cam1_board_id==2:
-                                #    cam1_corner_id=board2_id
+                            for corner_id in range(board.n_square_corners):
+                                c_id = board.get_corresponding_corner_id(corner_id, cam_board)
 
-                                if len(np.where(charuco_ids == board_id)[0]):
-                                    c_idx = np.where(charuco_ids == board_id)[0][0]
+                                if len(np.where(charuco_ids == c_id)[0]):
+                                    c_idx = np.where(charuco_ids == c_id)[0][0]
                                     pts.append(charuco_corners_sub[c_idx, :, :])
-                                    ids.append(board_id)
+                                    ids.append(c_id)
                             cam_corners[cam.sn] = pts
                             cam_corner_ids[cam.sn] = np.array(ids)
 
@@ -149,13 +140,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params):
             cam_list[cam.sn].append(cam_datas[cam_idx][:, :, :3])
 
         # If chessboard visible in more than one camera
-        for board_id in range(63):
-            # board2_id=board2_matching_ids[board1_id]
-            # if (len(np.where(charucoIds1==id_idx)[0]) and len(np.where(charucoIds2==board2_id)[0])):
-            # if cam1_board_id==1:
-            #    cam1_corner_id=board1_id
-            # elif cam1_board_id==2:
-            #    cam1_corner_id=board2_id
+        for board_id in range(board.n_square_corners):
             visible_cams = []
             for cam in cams:
                 if cam.sn in cam_corner_ids and len(np.where(cam_corner_ids[cam.sn] == board_id)[0]):
@@ -345,13 +330,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
 
     axis_size = 0.025  # This value is in meters
 
-    board1, board2 = create_charuco_boards()
-    n_corners=54
-    board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(n_corners)), (6, 9)), 0),
-                                     (n_corners,))
-
-    # board2_matching_ids=np.reshape(np.flip(np.reshape(np.array(range(63)),(7,9)),0),(63,))
-    # board2_matching_ids=np.array(range(63))
+    board = DoubleCharucoBoard()
 
     # Stop when RMS lower than threshold and greater than min frames collected
     rms_threshold = 1.0
@@ -405,29 +384,13 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
         img_shape1 = gray1.shape[::-1]
 
         # Find the chess board corners
-        [marker_corners1, marker_ids1, _] = cv2.aruco.detectMarkers(gray1, board1.dictionary,
+        [marker_corners1, marker_ids1, _] = cv2.aruco.detectMarkers(gray1, board.dictionary,
                                                                     parameters=detect_parameters)
-        cam1_board = None
-        cam1_board_id=None
-        if len(marker_corners1):
-            if len(np.where(board1.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
-                cam1_board = board1
-                cam1_board_id = 1
-            elif len(np.where(board2.ids[:, 0] == marker_ids1[0, 0])[0]) > 0:
-                cam1_board = board2
-                cam1_board_id = 2
+        cam1_board = board.get_detected_board(marker_ids1)
 
-        [marker_corners2, marker_ids2, _] = cv2.aruco.detectMarkers(gray2, board1.dictionary,
+        [marker_corners2, marker_ids2, _] = cv2.aruco.detectMarkers(gray2, board.dictionary,
                                                                     parameters=detect_parameters)
-        cam2_board = None
-        cam2_board_id = None
-        if len(marker_corners2):
-            if len(np.where(board1.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
-                cam2_board = board1
-                cam2_board_id = 1
-            elif len(np.where(board2.ids[:, 0] == marker_ids2[0, 0])[0]) > 0:
-                cam2_board = board2
-                cam2_board_id = 2
+        cam2_board = board.get_detected_board(marker_ids2)
 
         # If found, add object points, image points (after refining them)
         ret1 = 0
@@ -488,30 +451,18 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 pts1 = []
                 pts2 = []
                 n_pts = 0
-                for board1_id in range(n_corners):
-                    board2_id=board2_matching_ids[board1_id]
-                    # if (len(np.where(charuco_ids1==id_idx)[0]) and len(np.where(charuco_ids2==board2_id)[0])):
-                    if cam1_board_id==1:
-                       cam1_corner_id=board1_id
-                    elif cam1_board_id==2:
-                       cam1_corner_id=board2_id
-                    if cam2_board_id==1:
-                       cam2_corner_id=board1_id
-                    elif cam2_board_id==2:
-                       cam2_corner_id=board2_id
+                for cam_corner_id in range(board.n_square_corners):
+                    cam1_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam1_board)
+                    cam2_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam2_board)
 
-                    if len(np.where(charuco_ids1==cam1_corner_id)[0]) and len(np.where(charuco_ids2 == cam2_corner_id)[0]):
-                    #if len(np.where(charuco_ids1 == board1_id)[0]) and len(
-                    #        np.where(charuco_ids2 == board1_id)[0]):
+                    if len(np.where(charuco_ids1 == cam1_corner_id)[0]) and \
+                            len(np.where(charuco_ids2 == cam2_corner_id)[0]):
                         corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
-                        #corners.append(cam1_board.chessboardCorners[board1_id, :])
 
                         c1_idx=np.where(charuco_ids1==cam1_corner_id)[0][0]
-                        #c1_idx = np.where(charuco_ids1 == board1_id)[0][0]
                         pts1.append(charuco_corners_sub1[c1_idx, :, :])
 
                         c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
-                        #c2_idx = np.where(charuco_ids2 == board1_id)[0][0]
                         pts2.append(charuco_corners_sub2[c2_idx, :, :])
                         n_pts = n_pts + 1
 
@@ -556,10 +507,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                     ax1.clear()
                     cam_outside_corners = {}
                     cam_inside_corners = {}
-                    cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = project_chessboard(cam1_board, k1, d1,
-                                                                                                   rvec1, tvec1)
-                    cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = project_chessboard(cam2_board, k2, d2,
-                                                                                                   rvec2, tvec2)
+                    cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1, rvec1, tvec1)
+                    cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2, rvec2, tvec2)
 
                     outside_corner_locations = np.zeros((4, 3))
                     for idx in range(4):
@@ -571,7 +520,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                                                                                 intrinsic_params,
                                                                                 extrinsic_params)
                     inside_corner_locations = np.zeros((63, 3))
-                    for idx in range(n_corners):
+                    for idx in range(board.n_square_corners):
                         img_points = {}
                         for sn in cam_inside_corners.keys():
                             if len(cam_inside_corners[sn]):
@@ -580,8 +529,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                                                                                intrinsic_params,
                                                                                extrinsic_params)
 
-                    plot_chessboard_3d(ax1, outside_corner_locations, inside_corner_locations, intrinsic_params,
-                                       extrinsic_params)
+                    board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
                     xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
                             max(xlim[1], np.max(outside_corner_locations[:, 0]))]
                     ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
@@ -711,7 +659,7 @@ def intrinsic_cam_calibration(cam):
     min_frames = 50
     rpe = 1e6
 
-    board, other_board = create_charuco_boards()
+    board = DoubleCharucoBoard()
 
     # Plot RPE
     fig = plt.figure('Intrinsic - %s' % cam.sn)
@@ -746,12 +694,14 @@ def intrinsic_cam_calibration(cam):
         # Find the chess board corners
         [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary, parameters=detect_parameters)
 
+        cam_board = board.get_detected_board(marker_ids)
+
         # If found, add object points, image points (after refining them)
-        if len(marker_corners) > 0:
+        if len(marker_corners) > 0 and cam_board is not None:
             img_shape = gray.shape[::-1]
 
             [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids, gray,
-                                                                                      board)
+                                                                                      cam_board)
 
             if ret > 20:
                 charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
@@ -768,14 +718,14 @@ def intrinsic_cam_calibration(cam):
                 if len(all_corners) >= 6:
                     rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners,
                                                                        charucoIds=all_ids,
-                                                                       board=board,
+                                                                       board=cam_board,
                                                                        imageSize=img_shape,
                                                                        cameraMatrix=None,
                                                                        distCoeffs=None,
                                                                        flags=intrinsic_flags,
                                                                        criteria=intrinsic_term_crit)
                     # If there is a jump in RPE - exclude this point
-                    if len(rpes) > 0 and rpe - rpes[-1] > 100:
+                    if len(rpes) > 0 and rpe - rpes[-1] > 1:
                         all_corners.pop()
                         all_ids.pop()
                     # Otherwise, update lists and undistort rectify map
@@ -850,7 +800,7 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
 
     axis_size = 0.025  # This value is in meters
 
-    board1, board2 = create_charuco_boards()
+    board = DoubleCharucoBoard()
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -881,17 +831,11 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
             cam_outside_corners[cam.sn] = np.array([])
             cam_inside_corners[cam.sn] = np.array([])
 
-            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board1.dictionary,
-                                                                    parameters=detect_parameters)
-            cam_board = None
-            # cam_board_id = None
-            if len(marker_corners):
-                if len(np.where(board1.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
-                    cam_board = board1
-                    # cam_board_id = 1
-                elif len(np.where(board2.ids[:, 0] == marker_ids[0, 0])[0]) > 0:
-                    cam_board = board2
-                    # cam_board_id = 2
+            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
+                                                                      parameters=detect_parameters)
+            cam_board = board.get_detected_board(marker_ids)
+
+            if len(marker_corners)>0 and cam_board is not None:
 
                 [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
                                                                                           gray, cam_board)
@@ -900,7 +844,7 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
                                                            subcorner_term_crit)
 
                     cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
-                    # vcam1_data = cv2.aruco.drawDetectedMarkers(vcam1_data.copy(), markerCorners1, markerIds1)
+                    cam_data = cv2.aruco.drawDetectedMarkers(cam_data.copy(), marker_corners, marker_ids)
                     cam_data = cv2.aruco.drawDetectedCornersCharuco(cam_data.copy(), charuco_corners_sub,
                                                                     charuco_ids)
 
@@ -917,8 +861,8 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
                     )
                     if pose:
                         cam_data = aruco.drawAxis(cam_data, k, d, rvec, tvec, axis_size)
-                        cam_outside_corners[cam.sn], cam_inside_corners[cam.sn] = project_chessboard(cam_board, k, d,
-                                                                                                     rvec, tvec)
+                        cam_outside_corners[cam.sn], cam_inside_corners[cam.sn] = board.project(cam_board, k, d, rvec,
+                                                                                                tvec)
 
             resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
             cam_datas.append(resized)
@@ -930,19 +874,18 @@ def verify_calibration(cams, intrinsic_params, extrinsic_params):
             for sn in cam_outside_corners.keys():
                 if len(cam_outside_corners[sn]):
                     img_points[sn] = cam_outside_corners[sn][idx, :]
-            [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                    intrinsic_params,
-                                                                    extrinsic_params)
+            [outside_corner_locations[idx, :], _] = locate(list(img_points.keys()), img_points,
+                                                           intrinsic_params, extrinsic_params)
         inside_corner_locations = np.zeros((63, 3))
         for idx in range(63):
             img_points = {}
             for sn in cam_inside_corners.keys():
                 if len(cam_inside_corners[sn]):
                     img_points[sn] = cam_inside_corners[sn][idx, :]
-            [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                   intrinsic_params,
-                                                                   extrinsic_params)
-        plot_chessboard_3d(ax, outside_corner_locations, inside_corner_locations, intrinsic_params, extrinsic_params)
+            [inside_corner_locations[idx, :], _] = locate(list(img_points.keys()), img_points,
+                                                          intrinsic_params, extrinsic_params)
+
+        board.plot_3d(ax, outside_corner_locations, inside_corner_locations)
 
         if outside_corner_locations.shape[0] > 0:
             xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),

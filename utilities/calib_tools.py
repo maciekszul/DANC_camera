@@ -225,36 +225,110 @@ def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
     return [pts_3d, pairs_used]
 
 
-def create_charuco_boards(plot=False, save_template=False):
-    nSqWidth = 10  # number of squares width
-    nSqHeight = 7  # number of squares height
+class DoubleCharucoBoard:
+    def __init__(self):
+        self.n_squares_width = 10  # number of squares width
+        self.n_squares_height = 7  # number of squares height
+        self.n_square_corners = (self.n_squares_height-1)*(self.n_squares_width-1)
 
-    squareLength = 0.025 # 25mm
-    markerLength = 0.0175 # 17.5mm
+        self.square_length = 0.025 # 25mm
+        self.marker_length = 0.0175 # 17.5mm
 
-    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
-    board1 = cv2.aruco.CharucoBoard_create(nSqWidth, nSqHeight, squareLength, markerLength, dictionary)
-    board2 = cv2.aruco.CharucoBoard_create(nSqWidth, nSqHeight, squareLength, markerLength, dictionary)
-    board2.ids = board2.ids + len(board1.ids)
+        self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
+        self.board1 = cv2.aruco.CharucoBoard_create(self.n_squares_width, self.n_squares_height, self.square_length,
+                                                    self.marker_length, self.dictionary)
+        self.board2 = cv2.aruco.CharucoBoard_create(self.n_squares_width, self.n_squares_height, self.square_length,
+                                                    self.marker_length, self.dictionary)
+        self.board2.ids = self.board2.ids + len(self.board1.ids)
 
-    pixels_per_mm=6
-    pixW=int(nSqWidth*squareLength*1000*pixels_per_mm)
-    pixH=int(nSqHeight*squareLength*1000*pixels_per_mm)
-    imboard1 = board1.draw((pixW, pixH))
-    imboard2 = board2.draw((pixW, pixH))
-    if plot:
+        pixels_per_mm = 6
+        pix_w = int(self.n_squares_width * self.square_length * 1000 * pixels_per_mm)
+        pix_h = int(self.n_squares_height * self.square_length * 1000 * pixels_per_mm)
+        self.imboard1 = self.board1.draw((pix_w, pix_h))
+        self.imboard2 = self.board2.draw((pix_w, pix_h))
+
+    def plot(self):
         fig = plt.figure()
         ax = fig.add_subplot(2, 1, 1)
-        plt.imshow(imboard1, cmap=matplotlib.cm.gray, interpolation="nearest")
+        plt.imshow(self.imboard1, cmap=matplotlib.cm.gray, interpolation="nearest")
         ax.axis("off")
         ax = fig.add_subplot(2, 1, 2)
-        plt.imshow(imboard2, cmap=matplotlib.cm.gray, interpolation="nearest")
+        plt.imshow(self.imboard2, cmap=matplotlib.cm.gray, interpolation="nearest")
         ax.axis("off")
         plt.show()
-    if save_template:
-        cv2.imwrite("../charuco_board_1.png", imboard1)
-        cv2.imwrite("../charuco_board_2.png", imboard2)
-    return board1, board2
+
+    def save(self):
+        cv2.imwrite("../charuco_board_1.png", self.imboard1)
+        cv2.imwrite("../charuco_board_2.png", self.imboard2)
+
+    def project(self, board, k, d, rvec, tvec):
+        outside_corners = [
+            [np.min(board.chessboardCorners[:, 0]), np.min(board.chessboardCorners[:, 1]), 0],
+            [np.max(board.chessboardCorners[:, 0]), np.min(board.chessboardCorners[:, 1]), 0],
+            [np.min(board.chessboardCorners[:, 0]), np.max(board.chessboardCorners[:, 1]), 0],
+            [np.max(board.chessboardCorners[:, 0]), np.max(board.chessboardCorners[:, 1]), 0]]
+        outside_corners = np.array(outside_corners)
+        [rmat, _] = cv2.Rodrigues(rvec)
+        outside_projected = np.zeros((outside_corners.shape[0], 2))
+        for i in range(outside_corners.shape[0]):
+            ptProj = np.matmul(rmat, np.reshape(outside_corners[i, :], (3, 1))) + tvec
+            [outside_projected[i, :], _] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
+
+        inside_corners = board.chessboardCorners
+        [rmat, _] = cv2.Rodrigues(rvec)
+        inside_projected = np.zeros((inside_corners.shape[0], 2))
+        for i in range(inside_corners.shape[0]):
+            ptProj = np.matmul(rmat, np.reshape(inside_corners[i, :], (3, 1))) + tvec
+            [inside_projected[i, :], _] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
+
+        return outside_projected, inside_projected
+
+    def get_detected_board(self, marker_ids):
+        if len(np.where(self.board1.ids == marker_ids[0])[0]) > 0:
+            return self.board1
+        elif len(np.where(self.board2.ids == marker_ids[0])[0]) > 0:
+            return self.board2
+        return None
+
+    def get_corresponding_corner_id(self, corner_id, cam_board):
+        #board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(self.n_square_corners)),
+        #                                                    (self.n_squares_height, self.n_squares_width)), 0),
+        #                                 (self.n_square_corners,))
+
+        board2_matching_ids=np.array(range(self.n_square_corners))
+        board2_corner_id=board2_matching_ids[corner_id]
+        if cam_board is not None:
+            if cam_board.ids[0] == 0:
+                return corner_id
+            else:
+                return board2_corner_id
+        return None
+
+    @staticmethod
+    def plot_3d(ax, outside_corner_locations, inside_corner_locations):
+        if outside_corner_locations.shape[0] > 0:
+            ax.plot([outside_corner_locations[0, 0], outside_corner_locations[1, 0]],
+                    [outside_corner_locations[0, 1], outside_corner_locations[1, 1]],
+                    zs=[outside_corner_locations[0, 2], outside_corner_locations[1, 2]])
+            ax.plot([outside_corner_locations[1, 0], outside_corner_locations[3, 0]],
+                    [outside_corner_locations[1, 1], outside_corner_locations[3, 1]],
+                    zs=[outside_corner_locations[1, 2], outside_corner_locations[3, 2]])
+            ax.plot([outside_corner_locations[2, 0], outside_corner_locations[3, 0]],
+                    [outside_corner_locations[2, 1], outside_corner_locations[3, 1]],
+                    zs=[outside_corner_locations[2, 2], outside_corner_locations[3, 2]])
+            ax.plot([outside_corner_locations[2, 0], outside_corner_locations[0, 0]],
+                    [outside_corner_locations[2, 1], outside_corner_locations[0, 1]],
+                    zs=[outside_corner_locations[2, 2], outside_corner_locations[0, 2]])
+
+            cmap = plt.get_cmap('viridis')
+            ncolors = len(cmap.colors)
+            ncorners = inside_corner_locations.shape[0]
+            for idx in range(ncorners):
+                col_idx = int((idx / ncorners) * ncolors)
+                ax.scatter(inside_corner_locations[idx, 0], inside_corner_locations[idx, 1],
+                           inside_corner_locations[idx, 2],
+                           color=cmap.colors[col_idx], marker='o', s=1)
+        return outside_corner_locations
 
 
 def create_aruco_cube(plot=False, save_template=False):
@@ -319,55 +393,7 @@ def drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids):
     drawMarkerAt(board_ids[5][0], (int(cubeTemplate.shape[1] / 2), facePx + 3 * facePx * 2))
     return cubeTemplate
 
-
-def plot_chessboard_3d(ax, outside_corner_locations, inside_corner_locations, intrinsic_params, extrinsic_params):
-    if outside_corner_locations.shape[0] > 0:
-        ax.plot([outside_corner_locations[0, 0], outside_corner_locations[1, 0]],
-                [outside_corner_locations[0, 1], outside_corner_locations[1, 1]],
-                zs=[outside_corner_locations[0, 2], outside_corner_locations[1, 2]])
-        ax.plot([outside_corner_locations[1, 0], outside_corner_locations[3, 0]],
-                [outside_corner_locations[1, 1], outside_corner_locations[3, 1]],
-                zs=[outside_corner_locations[1, 2], outside_corner_locations[3, 2]])
-        ax.plot([outside_corner_locations[2, 0], outside_corner_locations[3, 0]],
-                [outside_corner_locations[2, 1], outside_corner_locations[3, 1]],
-                zs=[outside_corner_locations[2, 2], outside_corner_locations[3, 2]])
-        ax.plot([outside_corner_locations[2, 0], outside_corner_locations[0, 0]],
-                [outside_corner_locations[2, 1], outside_corner_locations[0, 1]],
-                zs=[outside_corner_locations[2, 2], outside_corner_locations[0, 2]])
-
-        cmap = plt.get_cmap('viridis')
-        ncolors = len(cmap.colors)
-        ncorners = inside_corner_locations.shape[0]
-        for idx in range(ncorners):
-            col_idx = int((idx / ncorners) * ncolors)
-            ax.scatter(inside_corner_locations[idx, 0], inside_corner_locations[idx, 1],
-                       inside_corner_locations[idx, 2],
-                       color=cmap.colors[col_idx], marker='o', s=1)
-    return outside_corner_locations
-
-
-def project_chessboard(cam_board, k, d, rvec, tvec):
-    outside_corners = [
-        [np.min(cam_board.chessboardCorners[:, 0]), np.min(cam_board.chessboardCorners[:, 1]), 0],
-        [np.max(cam_board.chessboardCorners[:, 0]), np.min(cam_board.chessboardCorners[:, 1]), 0],
-        [np.min(cam_board.chessboardCorners[:, 0]), np.max(cam_board.chessboardCorners[:, 1]), 0],
-        [np.max(cam_board.chessboardCorners[:, 0]), np.max(cam_board.chessboardCorners[:, 1]), 0]]
-    outside_corners = np.array(outside_corners)
-    [rmat, jac] = cv2.Rodrigues(rvec)
-    outside_projected = np.zeros((outside_corners.shape[0], 2))
-    for i in range(outside_corners.shape[0]):
-        ptProj = np.matmul(rmat, np.reshape(outside_corners[i, :], (3, 1))) + tvec
-        [outside_projected[i, :], jac] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
-
-    inside_corners = cam_board.chessboardCorners
-    [rmat, jac] = cv2.Rodrigues(rvec)
-    inside_projected = np.zeros((inside_corners.shape[0], 2))
-    for i in range(inside_corners.shape[0]):
-        ptProj = np.matmul(rmat, np.reshape(inside_corners[i, :], (3, 1))) + tvec
-        [inside_projected[i, :], jac] = cv2.projectPoints(ptProj, (0, 0, 0), (0, 0, 0), k, d)
-
-    return outside_projected, inside_projected
-
-
 if __name__ == '__main__':
-    create_charuco_boards(plot=False, save_template=False)
+    board = DoubleCharucoBoard()
+    board.plot()
+    board.save()

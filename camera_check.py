@@ -41,9 +41,9 @@ font = cv2.FONT_HERSHEY_COMPLEX_SMALL
 
 try:
     while True:
-        cam_datas=[]
+        cam_datas = []
         for cam in cams:
-            cam_data=cam.next_frame()
+            cam_data = cam.next_frame()
             ci0 = quick_resize(cam_data, 0.4, f_size[0], f_size[1])
             cam_data = cv2.putText(cam_data, "cam %s" % cam.sn, (10, 20), font, 1, (0, 0, 0), 1)
             resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
