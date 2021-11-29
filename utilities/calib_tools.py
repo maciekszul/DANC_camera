@@ -205,16 +205,16 @@ def change_of_basis(points, initial, final):
     x1, y1, z1 = initial
     x2, y2, z2 = final
 
-    M11, M12, M13 = np.dot(x1, x2), np.dot(x1, y2), np.dot(x1, z2)
-    M21, M22, M23 = np.dot(y1, x2), np.dot(y1, y2), np.dot(y1, z2)
-    M31, M32, M33 = np.dot(z1, x2), np.dot(z1, y2), np.dot(z1, z2)
+    M11, M12, M13 = np.dot(unit_vector(x1), unit_vector(x2)), np.dot(unit_vector(x1), unit_vector(y2)), np.dot(unit_vector(x1), unit_vector(z2))
+    M21, M22, M23 = np.dot(unit_vector(y1), unit_vector(x2)), np.dot(unit_vector(y1), unit_vector(y2)), np.dot(unit_vector(y1), unit_vector(z2))
+    M31, M32, M33 = np.dot(unit_vector(z1), unit_vector(x2)), np.dot(unit_vector(z1), unit_vector(y2)), np.dot(unit_vector(z1), unit_vector(z2))
 
     # set up rotation matrix
     R = np.array([[M11, M12, M13],
                   [M21, M22, M23],
                   [M31, M32, M33]])
 
-    return np.linalg.inv(np.squeeze(R))#.dot(points)
+    return np.transpose(np.linalg.inv(np.squeeze(R)))#.dot(points)
 
 def unit_vector(data, axis=None, out=None):
     """Return ndarray normalized by length, i.e. eucledian norm, along axis.
