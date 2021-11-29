@@ -4,6 +4,7 @@ import time
 import cv2
 from ximea import xiapi
 
+
 class FrameSource:
 
     def __init__(self):
@@ -18,12 +19,16 @@ class FrameSource:
     def close(self):
         pass
 
+
 class CameraSource(FrameSource):
     def __init__(self, sn, fps, shutter, gain):
-        self.sn=sn
-        self.fps=fps
-        self.shutter=shutter
-        self.gain=gain
+        FrameSource.__init__(self)
+        self.sn = sn
+        self.fps = fps
+        self.shutter = shutter
+        self.gain = gain
+        self.cam = None
+        self.img = None
 
     def init(self, sensor_feature_value=None, disable_auto_bandwidth=False, img_data_format="XI_RGB32",
              output_bit_depth=None, auto_wb=True, counter_selector=None):
@@ -51,8 +56,8 @@ class CameraSource(FrameSource):
             self.cam.start_acquisition()
 
         except:
-            self.cam=None
-            self.img=None
+            self.cam = None
+            self.img = None
 
     def next_frame(self):
         self.cam.get_image(self.img)
@@ -63,16 +68,19 @@ class CameraSource(FrameSource):
         self.cam.stop_acquisition()
         self.cam.close_device()
 
+
 class FileSource(FrameSource):
     def __init__(self, sn, filename):
-        self.sn=sn
-        self.filename=filename
+        FrameSource.__init__(self)
+        self.sn = sn
+        self.filename = filename
+        self.vidcap = None
 
     def init(self):
         if os.path.exists(self.filename):
             self.vidcap = cv2.VideoCapture(self.filename)
         else:
-            self.vidcap=None
+            self.vidcap = None
 
     def next_frame(self):
         success, image = self.vidcap.read()
@@ -83,7 +91,7 @@ class FileSource(FrameSource):
 
 def init_camera_sources(parameters, fps, shutter, gain, sensor_feature_value=None, disable_auto_bandwidth=False,
                         img_data_format="XI_RGB32", output_bit_depth=None, auto_wb=True, counter_selector=None):
-    srcs=[]
+    srcs = []
     ############################
     # for each camera separately
     for sn in parameters['cam_sns']:
@@ -95,10 +103,11 @@ def init_camera_sources(parameters, fps, shutter, gain, sensor_feature_value=Non
             srcs.append(src)
     return srcs
 
+
 def init_file_sources(parameters, prefix):
-    srcs=[]
+    srcs = []
     for sn in parameters['cam_sns']:
-        src=FileSource(sn, '%s_cam_%s.avi' % (prefix, sn))
+        src = FileSource(sn, '%s_cam%s.avi' % (prefix, sn))
         src.init()
         if src.vidcap is not None:
             srcs.append(src)
@@ -106,10 +115,10 @@ def init_file_sources(parameters, prefix):
 
 
 def shtr_spd(framerate):
-    return int((1/framerate)*1e+6)-100
+    return int((1 / framerate) * 1e+6) - 100
 
 
-def get_WB_coef(s_n, framerate, shutter, gain):
+def get_wb_coef(s_n, framerate, shutter, gain):
     cam = xiapi.Camera()
     img = xiapi.Image()
     cam.open_device_by_SN(s_n)
@@ -125,11 +134,11 @@ def get_WB_coef(s_n, framerate, shutter, gain):
     while (time.monotonic() - start) <= 1:
         cam.get_image(img)
 
-    kR = cam.get_wb_kr()
-    kG = cam.get_wb_kg()
-    kB = cam.get_wb_kb()
+    kr = cam.get_wb_kr()
+    kg = cam.get_wb_kg()
+    kb = cam.get_wb_kb()
 
     cam.stop_acquisition()
     cam.close_device()
 
-    return kR, kG, kB
+    return kr, kg, kb
