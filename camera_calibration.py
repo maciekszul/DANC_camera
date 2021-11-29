@@ -374,14 +374,6 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     ax2 = fig.add_subplot(1, 2, 2)
 
-    # Initialize axes limits
-    xlim = [-0.001, 0.001]
-    ylim = [-0.001, 0.001]
-    zlim = [-0.001, 0.001]
-    ax1.set_xlim(xlim[0], xlim[1])
-    ax1.set_ylim(ylim[0], ylim[1])
-    ax1.set_zlim(zlim[0], zlim[1])
-
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.set_zlabel("Z")
@@ -556,15 +548,6 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                                                                                    extrinsic_params)
 
                         board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
-                        # xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
-                        #         max(xlim[1], np.max(outside_corner_locations[:, 0]))]
-                        # ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
-                        #         max(ylim[1], np.max(outside_corner_locations[:, 1]))]
-                        # zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
-                        #         max(zlim[1], np.max(outside_corner_locations[:, 2]))]
-                        # ax1.set_xlim(xlim[0], xlim[1])
-                        # ax1.set_ylim(ylim[0], ylim[1])
-                        # ax1.set_zlim(zlim[0], zlim[1])
                         ax1.set_xlabel("X")
                         ax1.set_ylabel("Y")
                         ax1.set_zlabel("Z")
@@ -611,9 +594,6 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
             objpoints = []
             imgpoints = {cam1.sn: [], cam2.sn: []}
             rmss = []
-            xlim = [-0.001, 0.001]
-            ylim = [-0.001, 0.001]
-            zlim = [-0.001, 0.001]
 
     if len(objpoints) > 0:
         # Final stereo calibration - keep intrinsic parameters fixed
@@ -834,24 +814,12 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
 
     fig1 = plt.figure()
     ax1 = fig1.add_subplot(111, projection="3d")
-    xlim1 = [-0.001, 0.001]
-    ylim1 = [-0.001, 0.001]
-    zlim1 = [-0.001, 0.001]
-    ax1.set_xlim(xlim1[0], xlim1[1])
-    ax1.set_ylim(ylim1[0], ylim1[1])
-    ax1.set_zlim(zlim1[0], zlim1[1])
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.set_zlabel("Z")
 
     fig2 = plt.figure()
     ax2 = fig2.add_subplot(111, projection="3d")
-    xlim2 = [-0.001, 0.001]
-    ylim2 = [-0.001, 0.001]
-    zlim2 = [-0.001, 0.001]
-    ax2.set_xlim(xlim2[0], xlim2[1])
-    ax2.set_ylim(ylim2[0], ylim2[1])
-    ax2.set_zlim(zlim2[0], zlim2[1])
     ax2.set_xlabel("X")
     ax2.set_ylabel("Y")
     ax2.set_zlabel("Z")
@@ -882,9 +850,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             if pose:
                 vcam_data = cv2.putText(vcam_data, 'x', (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
                                         2, (0, 0, 255), 2)
-                vcam_data = cv2.putText(vcam_data, 'y', (20, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                vcam_data = cv2.putText(vcam_data, 'y', (30, 55), cv2.FONT_HERSHEY_SIMPLEX,
                                         2, (0, 255, 0), 2)
-                vcam_data = cv2.putText(vcam_data, 'z', (30, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                vcam_data = cv2.putText(vcam_data, 'z', (50, 55), cv2.FONT_HERSHEY_SIMPLEX,
                                         2, (255, 0, 0), 2)
                 vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, axis_length)
                 vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
@@ -926,9 +894,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ys = origin_location[:, 1]
             zs = origin_location[:, 2]
             ax1.scatter(xs, ys, zs, c='k', marker='o', s=1)
-            xlim1 = [min(xlim1[0], np.min(xs)), max(xlim1[1], np.max(xs))]
-            ylim1 = [min(ylim1[0], np.min(ys)), max(ylim1[1], np.max(ys))]
-            zlim1 = [min(zlim1[0], np.min(zs)), max(zlim1[1], np.max(zs))]
 
         [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
                                               intrinsic_params, extrinsic_params)
@@ -936,9 +901,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax1.plot([origin_location[0, 0], x_location[0, 0]],
                      [origin_location[0, 1], x_location[0, 1]],
                      zs=[origin_location[0, 2], x_location[0, 2]], c='b')
-            xlim1 = [min(xlim1[0], x_location[0, 0]), max(xlim1[1], x_location[0, 0])]
-            ylim1 = [min(ylim1[0], x_location[0, 1]), max(ylim1[1], x_location[0, 1])]
-            zlim1 = [min(zlim1[0], x_location[0, 2]), max(zlim1[1], x_location[0, 2])]
 
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params)
@@ -946,9 +908,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax1.plot([origin_location[0, 0], y_location[0, 0]],
                      [origin_location[0, 1], y_location[0, 1]],
                      zs=[origin_location[0, 2], y_location[0, 2]], c='g')
-            xlim1 = [min(xlim1[0], y_location[0, 0]), max(xlim1[1], y_location[0, 0])]
-            ylim1 = [min(ylim1[0], y_location[0, 1]), max(ylim1[1], y_location[0, 1])]
-            zlim1 = [min(zlim1[0], y_location[0, 2]), max(zlim1[1], y_location[0, 2])]
 
         [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
                                               intrinsic_params, extrinsic_params)
@@ -956,13 +915,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax1.plot([origin_location[0, 0], z_location[0, 0]],
                      [origin_location[0, 1], z_location[0, 1]],
                      zs=[origin_location[0, 2], z_location[0, 2]], c='r')
-            xlim1 = [min(xlim1[0], z_location[0, 0]), max(xlim1[1], z_location[0, 0])]
-            ylim1 = [min(ylim1[0], z_location[0, 1]), max(ylim1[1], z_location[0, 1])]
-            zlim1 = [min(zlim1[0], z_location[0, 2]), max(zlim1[1], z_location[0, 2])]
 
-        ax1.set_xlim(xlim1[0], xlim1[1])
-        ax1.set_ylim(ylim1[0], ylim1[1])
-        ax1.set_zlim(zlim1[0], zlim1[1])
         ax1.set_xlabel("X")
         ax1.set_ylabel("Y")
         ax1.set_zlabel("Z")
@@ -982,9 +935,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ys = origin_location[:, 1]
             zs = origin_location[:, 2]
             ax2.scatter(xs, ys, zs, c='k', marker='o', s=1)
-            xlim2 = [min(xlim2[0], np.min(xs)), max(xlim2[1], np.max(xs))]
-            ylim2 = [min(ylim2[0], np.min(ys)), max(ylim2[1], np.max(ys))]
-            zlim2 = [min(zlim2[0], np.min(zs)), max(zlim2[1], np.max(zs))]
 
         [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -992,9 +942,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax2.plot([origin_location[0, 0], x_location[0, 0]],
                      [origin_location[0, 1], x_location[0, 1]],
                      zs=[origin_location[0, 2], x_location[0, 2]], c='b')
-            xlim2 = [min(xlim2[0], x_location[0, 0]), max(xlim2[1], x_location[0, 0])]
-            ylim2 = [min(ylim2[0], x_location[0, 1]), max(ylim2[1], x_location[0, 1])]
-            zlim2 = [min(zlim2[0], x_location[0, 2]), max(zlim2[1], x_location[0, 2])]
 
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -1002,9 +949,6 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax2.plot([origin_location[0, 0], y_location[0, 0]],
                      [origin_location[0, 1], y_location[0, 1]],
                      zs=[origin_location[0, 2], y_location[0, 2]], c='g')
-            xlim2 = [min(xlim2[0], y_location[0, 0]), max(xlim2[1], y_location[0, 0])]
-            ylim2 = [min(ylim2[0], y_location[0, 1]), max(ylim2[1], y_location[0, 1])]
-            zlim2 = [min(zlim2[0], y_location[0, 2]), max(zlim2[1], y_location[0, 2])]
 
         [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -1012,13 +956,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             ax2.plot([origin_location[0, 0], z_location[0, 0]],
                      [origin_location[0, 1], z_location[0, 1]],
                      zs=[origin_location[0, 2], z_location[0, 2]], c='r')
-            xlim2 = [min(xlim2[0], z_location[0, 0]), max(xlim2[1], z_location[0, 0])]
-            ylim2 = [min(ylim2[0], z_location[0, 1]), max(ylim2[1], z_location[0, 1])]
-            zlim2 = [min(zlim2[0], z_location[0, 2]), max(zlim2[1], z_location[0, 2])]
 
-        ax2.set_xlim(xlim2[0], xlim2[1])
-        ax2.set_ylim(ylim2[0], ylim2[1])
-        ax2.set_zlim(zlim2[0], zlim2[1])
         ax2.set_xlabel("X")
         ax2.set_ylabel("Y")
         ax2.set_zlabel("Z")
@@ -1275,7 +1213,8 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_dir=os.path.join('./calibrations',timestamp)
-    os.mkdirs(os.path.join(out_dir,'videos'), exist_ok=True)
+    os.mkdir(out_dir)
+    os.mkdir(os.path.join(out_dir,'videos'))
 
     # Run until final acceptance
     calib_finished = False
@@ -1353,7 +1292,7 @@ if __name__ == '__main__':
         sba = sys.argv[4] == '1'
     except:
         sba = True
-    if sba == '1':
+    if sba:
         print('RUNNING: sba')
 
     try:
