@@ -1,10 +1,14 @@
+import os
 import socket
 import time
 import json
+from datetime import datetime
+
 import numpy as np
 import os.path as op
 
 from camera_io import init_camera_sources, shtr_spd, get_wb_coef
+from utilities.tools import makefolder
 
 
 def dump_and_run(lists, path):
@@ -20,10 +24,10 @@ fps = 200
 gain = 5
 shutter = shtr_spd(fps)
 
-kR_cam0, kG_cam0, kB_cam0 = get_wb_coef(params['cams_sn'][0], 30, shutter, gain)
-kR_cam1, kG_cam1, kB_cam1 = get_wb_coef(params['cams_sn'][1], 30, shutter, gain)
-kR_cam2, kG_cam2, kB_cam2 = get_wb_coef(params['cams_sn'][2], 30, shutter, gain)
-kR_cam3, kG_cam3, kB_cam3 = get_wb_coef(params['cams_sn'][3], 30, shutter, gain)
+kR_cam0, kG_cam0, kB_cam0 = get_wb_coef(params['cam_sns'][0], 30, shutter, gain)
+kR_cam1, kG_cam1, kB_cam1 = get_wb_coef(params['cam_sns'][1], 30, shutter, gain)
+kR_cam2, kG_cam2, kB_cam2 = get_wb_coef(params['cam_sns'][2], 30, shutter, gain)
+kR_cam3, kG_cam3, kB_cam3 = get_wb_coef(params['cam_sns'][3], 30, shutter, gain)
 
 cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, disable_auto_bandwidth=True,
                          img_data_format='XI_RAW8', auto_wb=False, counter_selector='XI_CNT_SEL_API_SKIPPED_FRAMES')
@@ -39,6 +43,10 @@ s.connect((TCP_IP, TCP_PORT))
 message_connect = "connected"
 s.send(message_connect.encode())
 
+makefolder('./data')
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+out_dir=os.path.join('./data',timestamp)
+os.mkdir(out_dir)
 
 while True:
     data_raw = s.recv(buffer_size)
@@ -137,8 +145,8 @@ while True:
                 str(counter).zfill(3),
                 timestamp
             )
-            npy_path = op.join("data", filename + ".npy")
-            json_path = op.join("data", filename + ".json")
+            npy_path = op.join(out_dir, filename + ".npy")
+            json_path = op.join(out_dir, filename + ".json")
             dump_and_run(v, npy_path)
             with open(json_path, "w") as fp:
                 json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)

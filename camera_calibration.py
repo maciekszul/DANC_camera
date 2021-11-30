@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
 from utilities.calib_tools import locate, DoubleCharucoBoard, create_aruco_cube, locate_dlt
-from utilities.tools import quick_resize
+from utilities.tools import quick_resize, makefolder
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
 stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 1e-5)
@@ -900,7 +900,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         if pairs_used > 0:
             ax1.plot([origin_location[0, 0], x_location[0, 0]],
                      [origin_location[0, 1], x_location[0, 1]],
-                     zs=[origin_location[0, 2], x_location[0, 2]], c='b')
+                     zs=[origin_location[0, 2], x_location[0, 2]], c='r')
 
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params)
@@ -914,7 +914,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         if pairs_used > 0:
             ax1.plot([origin_location[0, 0], z_location[0, 0]],
                      [origin_location[0, 1], z_location[0, 1]],
-                     zs=[origin_location[0, 2], z_location[0, 2]], c='r')
+                     zs=[origin_location[0, 2], z_location[0, 2]], c='b')
 
         ax1.set_xlabel("X")
         ax1.set_ylabel("Y")
@@ -930,6 +930,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         ax2.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        #origin_location = np.array([[0, 0, 0]])
+        #pairs_used = 1
+
         if pairs_used > 0:
             xs = origin_location[:, 0]
             ys = origin_location[:, 1]
@@ -941,7 +944,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         if pairs_used > 0:
             ax2.plot([origin_location[0, 0], x_location[0, 0]],
                      [origin_location[0, 1], x_location[0, 1]],
-                     zs=[origin_location[0, 2], x_location[0, 2]], c='b')
+                     zs=[origin_location[0, 2], x_location[0, 2]], c='r')
 
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -955,7 +958,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         if pairs_used > 0:
             ax2.plot([origin_location[0, 0], z_location[0, 0]],
                      [origin_location[0, 1], z_location[0, 1]],
-                     zs=[origin_location[0, 2], z_location[0, 2]], c='r')
+                     zs=[origin_location[0, 2], z_location[0, 2]], c='b')
 
         ax2.set_xlabel("X")
         ax2.set_ylabel("Y")
@@ -1212,6 +1215,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
         cams = init_camera_sources(parameters, fps, shutter, gain)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    makefolder('./calibrations')
     out_dir=os.path.join('./calibrations',timestamp)
     os.mkdir(out_dir)
     os.mkdir(os.path.join(out_dir,'videos'))
