@@ -1,5 +1,3 @@
-import copy
-import math
 from time import time
 
 import matplotlib
@@ -172,131 +170,18 @@ def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params, recti
 
         # Apply rectification
         if rectify_params is not None:
-            xy_norm=np.array([[0,0,1]])
-            table_center=rectify_params['origin']
-            #table_vec1=rectify_params['x_axis']
-            #table_vec2=rectify_params['y_axis']
-            #table_norm=unit_vector(np.cross(table_vec1, table_vec2))
-            table_norm=rectify_params['z_axis']
-            rot_vec=unit_vector(np.cross(xy_norm, table_norm),axis=1)
-            rot_angle=-np.arccos(np.abs(np.sum(xy_norm*table_norm))/np.sqrt(np.sum(table_norm**2)))
-            rot_mat=rotation_matrix(rot_angle, np.transpose(rot_vec))
-            #rot_mat=np.matmul(rotation_matrix(np.pi, [1,0,0]), rot_mat)
-            rot_mat=rot_mat[:3,:3]
-            rot_mat2=change_of_basis(table_center, [rectify_params['x_axis'],rectify_params['y_axis'],rectify_params['z_axis']],
-                                   [[0,0,1],[0,1,0],[0,0,1]])
-            origin=np.transpose(np.matmul(rot_mat, np.transpose(table_center)))
-            origin2 = np.transpose(np.matmul(rot_mat2, np.transpose(table_center)))
-            location=np.transpose(np.matmul(rot_mat2, np.transpose(location)))-origin2
-
+            table_center = rectify_params['origin']
+            v1=rectify_params['x_axis'] - table_center
+            v2=rectify_params['y_axis'] - table_center
+            v3=rectify_params['z_axis'] - table_center
+            v1 = v1 / np.linalg.norm(v1)
+            v2 = v1 / np.linalg.norm(v2)
+            v3 = v1 / np.linalg.norm(v3)
+            M_inv=np.linalg.inv(np.transpose(np.squeeze([v1,v2,v3])))
+            location=np.transpose(np.matmul(M_inv,np.transpose((location-table_center))))
     return [location, cameras_used]
 
 
-def change_of_basis(points, initial, final):
-    '''
-    rotate points/vectors in a 3D coordinate system to a new coordinate system
-
-        input: m x 3 array of points or vectors that have to be transformed from the initial to the final csys
-        initial: sequence of sequences of floats representing the normalized axis of the csys that has to be transformed
-        final: sequence of sequences of floats representing the normalized axis of the csys to which has to be transformed
-
-        return: the points/vectors in the new coordinate system
-    '''
-    x1, y1, z1 = initial
-    x2, y2, z2 = final
-
-    M11, M12, M13 = np.dot(unit_vector(x1), unit_vector(x2)), np.dot(unit_vector(x1), unit_vector(y2)), np.dot(unit_vector(x1), unit_vector(z2))
-    M21, M22, M23 = np.dot(unit_vector(y1), unit_vector(x2)), np.dot(unit_vector(y1), unit_vector(y2)), np.dot(unit_vector(y1), unit_vector(z2))
-    M31, M32, M33 = np.dot(unit_vector(z1), unit_vector(x2)), np.dot(unit_vector(z1), unit_vector(y2)), np.dot(unit_vector(z1), unit_vector(z2))
-
-    # set up rotation matrix
-    R = np.array([[M11, M12, M13],
-                  [M21, M22, M23],
-                  [M31, M32, M33]])
-
-    return np.transpose(np.linalg.inv(np.squeeze(R)))#.dot(points)
-
-def unit_vector(data, axis=None, out=None):
-    """Return ndarray normalized by length, i.e. eucledian norm, along axis.
-    >>> v0 = numpy.random.random(3)
-    >>> v1 = unit_vector(v0)
-    >>> numpy.allclose(v1, v0 / numpy.linalg.norm(v0))
-    True
-    >>> v0 = numpy.random.rand(5, 4, 3)
-    >>> v1 = unit_vector(v0, axis=-1)
-    >>> v2 = v0 / numpy.expand_dims(numpy.sqrt(numpy.sum(v0*v0, axis=2)), 2)
-    >>> numpy.allclose(v1, v2)
-    True
-    >>> v1 = unit_vector(v0, axis=1)
-    >>> v2 = v0 / numpy.expand_dims(numpy.sqrt(numpy.sum(v0*v0, axis=1)), 1)
-    >>> numpy.allclose(v1, v2)
-    True
-    >>> v1 = numpy.empty((5, 4, 3), dtype=numpy.float64)
-    >>> unit_vector(v0, axis=1, out=v1)
-    >>> numpy.allclose(v1, v2)
-    True
-    >>> list(unit_vector([]))
-    []
-    >>> list(unit_vector([1.0]))
-    [1.0]
-    """
-    if out is None:
-        data = np.array(data, dtype=np.float64, copy=True)
-        if data.ndim == 1:
-            data /= math.sqrt(np.dot(data, data))
-            return data
-    else:
-        if out is not data:
-            out[:] = np.array(data, copy=False)
-        data = out
-    length = np.atleast_1d(np.sum(data*data, axis))
-    np.sqrt(length, length)
-    if axis is not None:
-        length = np.expand_dims(length, axis)
-    data /= length
-    if out is None:
-        return data
-
-def rotation_matrix(angle, direction, point=None):
-    """Return matrix to rotate about axis defined by point and direction.
-    >>> angle = (random.random() - 0.5) * (2*math.pi)
-    >>> direc = numpy.random.random(3) - 0.5
-    >>> point = numpy.random.random(3) - 0.5
-    >>> R0 = rotation_matrix(angle, direc, point)
-    >>> R1 = rotation_matrix(angle-2*math.pi, direc, point)
-    >>> is_same_transform(R0, R1)
-    True
-    >>> R0 = rotation_matrix(angle, direc, point)
-    >>> R1 = rotation_matrix(-angle, -direc, point)
-    >>> is_same_transform(R0, R1)
-    True
-    >>> I = numpy.identity(4, numpy.float64)
-    >>> numpy.allclose(I, rotation_matrix(math.pi*2, direc))
-    True
-    >>> numpy.allclose(2., numpy.trace(rotation_matrix(math.pi/2,
-    ...                                                direc, point)))
-    True
-    """
-    sina = math.sin(angle)
-    cosa = math.cos(angle)
-    direction = unit_vector(direction[:3])
-    # rotation matrix around unit vector
-    R = np.array(((cosa, 0.0,  0.0),
-                     (0.0,  cosa, 0.0),
-                     (0.0,  0.0,  cosa)), dtype=np.float64)
-    R += np.outer(direction, direction) * (1.0 - cosa)
-    direction *= sina
-    R += np.array((( 0.0,         -direction[2],  direction[1]),
-                      ( direction[2], 0.0,          -direction[0]),
-                      (-direction[1], direction[0],  0.0)),
-                     dtype=np.float64)
-    M = np.identity(4)
-    M[:3, :3] = R
-    if point is not None:
-        # rotation not around origin
-        point = np.array(point[:3], dtype=np.float64, copy=False)
-        M[:3, 3] = point - np.dot(R, point)
-    return M
 
 def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
     k_arr = np.array([intrinsic_params[x]['k'] for x in cam_sns])
