@@ -11,7 +11,7 @@ import pickle
 import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
-from utilities.calib_tools import locate, DoubleCharucoBoard, create_aruco_cube, locate_dlt
+from utilities.calib_tools import locate, DoubleCharucoBoard, locate_dlt, ArucoCube
 from utilities.tools import quick_resize, makefolder
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
@@ -51,7 +51,6 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
     camera_indices = []
 
     board = DoubleCharucoBoard()
-    axis_size = 0.025  # This value is in meters
 
     print('Accept SBA data (y/n)?')
 
@@ -122,7 +121,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
                             tvec=None
                         )
                         if pose:
-                            vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, axis_size)
+                            vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, board.square_length)
 
                             pts = []
                             ids = []
@@ -350,8 +349,6 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                   [0, 1, 0]], dtype=np.float32)
     t = np.array([[0, 0, 0]], dtype=np.float32).T
 
-    axis_size = 0.025  # This value is in meters
-
     board = DoubleCharucoBoard()
 
     # Stop when RMS lower than threshold and greater than min frames collected
@@ -445,7 +442,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 tvec=None
             )
             if pose1:
-                vcam1_data = aruco.drawAxis(vcam1_data, k1, d1, rvec1, tvec1, axis_size)
+                vcam1_data = aruco.drawAxis(vcam1_data, k1, d1, rvec1, tvec1, board.square_length)
 
             pose2, rvec2, tvec2 = aruco.estimatePoseCharucoBoard(
                 charucoCorners=charuco_corners_sub2,
@@ -457,7 +454,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 tvec=None
             )
             if pose2:
-                vcam2_data = aruco.drawAxis(vcam2_data, k2, d2, rvec2, tvec2, axis_size)
+                vcam2_data = aruco.drawAxis(vcam2_data, k2, d2, rvec2, tvec2, board.square_length)
 
             if pose1 and pose2:
 
@@ -807,10 +804,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'rectify'))
 
     # Initialize ArUco Tracking
-    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
-    axis_length = 0.045  # This value is in meters
-
-    board = create_aruco_cube()
+    cube = ArucoCube()
 
     fig1 = plt.figure()
     ax1 = fig1.add_subplot(111, projection="3d")
@@ -843,9 +837,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             d = intrinsic_params[cam.sn]['d']
 
             gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-            corners, ids, _ = aruco.detectMarkers(gray, aruco_dict, parameters=detect_parameters)
+            corners, ids, _ = aruco.detectMarkers(gray, cube.aruco_dict, parameters=detect_parameters)
 
-            pose, rvec, tvec = aruco.estimatePoseBoard(corners, ids, board, k, d, rvec=None,
+            pose, rvec, tvec = aruco.estimatePoseBoard(corners, ids, cube.board, k, d, rvec=None,
                                                        tvec=None)
             if pose:
                 vcam_data = cv2.putText(vcam_data, 'x', (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
@@ -854,34 +848,16 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
                                         2, (0, 255, 0), 2)
                 vcam_data = cv2.putText(vcam_data, 'z', (50, 55), cv2.FONT_HERSHEY_SIMPLEX,
                                         2, (255, 0, 0), 2)
-                vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, axis_length)
+                vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, cube.marker_width)
                 vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
 
-                [rmat, _] = cv2.Rodrigues(rvec)
-                origin = np.zeros((3, 1))
-                pt_origin = np.matmul(rmat, origin) + tvec
-                [origin_projected, _] = cv2.projectPoints(pt_origin, (0, 0, 0), (0, 0, 0), k, d)
-                cam_coords['origin'][cam.sn] = np.squeeze(origin_projected)
+                origin, x_axis, y_axis, z_axis = cube.project(k, d, rvec, tvec)
+                cam_coords['origin'][cam.sn] = origin
+                cam_coords['x_axis'][cam.sn] = x_axis
+                cam_coords['y_axis'][cam.sn] = y_axis
+                cam_coords['z_axis'][cam.sn] = z_axis
 
-                x_axis = np.array([[axis_length], [0], [0]])
-                pt_x = np.matmul(rmat, x_axis) + tvec
-                [x_projected, _] = cv2.projectPoints(pt_x, (0, 0, 0), (0, 0, 0), k, d)
-                cam_coords['x_axis'][cam.sn] = np.squeeze(x_projected)
-
-                y_axis = np.array([[0], [axis_length], [0]])
-                pt_y = np.matmul(rmat, y_axis) + tvec
-                [y_projected, _] = cv2.projectPoints(pt_y, (0, 0, 0), (0, 0, 0), k, d)
-                cam_coords['y_axis'][cam.sn] = np.squeeze(y_projected)
-
-                z_axis = np.array([[0], [0], [axis_length]])
-                pt_z = np.matmul(rmat, z_axis) + tvec
-                [z_projected, _] = cv2.projectPoints(pt_z, (0, 0, 0), (0, 0, 0), k, d)
-                cam_coords['z_axis'][cam.sn] = np.squeeze(z_projected)
-
-            width = int(f_size[0] * .5)
-            height = int(f_size[1] * .5)
-            dim = (width, height)
-            resized = cv2.resize(vcam_data, dim, interpolation=cv2.INTER_AREA)
+            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
             cam_datas.append(resized)
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
@@ -889,32 +865,14 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         ax1.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params)
-        if pairs_used > 0:
-            xs = origin_location[:, 0]
-            ys = origin_location[:, 1]
-            zs = origin_location[:, 2]
-            ax1.scatter(xs, ys, zs, c='k', marker='o', s=1)
-
         [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
                                               intrinsic_params, extrinsic_params)
-        if pairs_used > 0:
-            ax1.plot([origin_location[0, 0], x_location[0, 0]],
-                     [origin_location[0, 1], x_location[0, 1]],
-                     zs=[origin_location[0, 2], x_location[0, 2]], c='r')
-
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params)
-        if pairs_used > 0:
-            ax1.plot([origin_location[0, 0], y_location[0, 0]],
-                     [origin_location[0, 1], y_location[0, 1]],
-                     zs=[origin_location[0, 2], y_location[0, 2]], c='g')
-
         [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
                                               intrinsic_params, extrinsic_params)
-        if pairs_used > 0:
-            ax1.plot([origin_location[0, 0], z_location[0, 0]],
-                     [origin_location[0, 1], z_location[0, 1]],
-                     zs=[origin_location[0, 2], z_location[0, 2]], c='b')
+
+        cube.plot_3d(ax1, origin_location, x_location, y_location, z_location)
 
         ax1.set_xlabel("X")
         ax1.set_ylabel("Y")
@@ -930,35 +888,14 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         ax2.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params, rectify_params=rectify_params)
-        #origin_location = np.array([[0, 0, 0]])
-        #pairs_used = 1
-
-        if pairs_used > 0:
-            xs = origin_location[:, 0]
-            ys = origin_location[:, 1]
-            zs = origin_location[:, 2]
-            ax2.scatter(xs, ys, zs, c='k', marker='o', s=1)
-
         [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
-        if pairs_used > 0:
-            ax2.plot([origin_location[0, 0], x_location[0, 0]],
-                     [origin_location[0, 1], x_location[0, 1]],
-                     zs=[origin_location[0, 2], x_location[0, 2]], c='r')
-
         [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
-        if pairs_used > 0:
-            ax2.plot([origin_location[0, 0], y_location[0, 0]],
-                     [origin_location[0, 1], y_location[0, 1]],
-                     zs=[origin_location[0, 2], y_location[0, 2]], c='g')
-
         [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
                                               intrinsic_params, extrinsic_params, rectify_params=rectify_params)
-        if pairs_used > 0:
-            ax2.plot([origin_location[0, 0], z_location[0, 0]],
-                     [origin_location[0, 1], z_location[0, 1]],
-                     zs=[origin_location[0, 2], z_location[0, 2]], c='b')
+
+        cube.plot_3d(ax2, origin_location, x_location, y_location, z_location)
 
         ax2.set_xlabel("X")
         ax2.set_ylabel("Y")
@@ -999,10 +936,8 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         cv2.imshow("cam", data)
         key = cv2.waitKey(1) & 0xFF
         if key == ord('y'):
-            accept = True
             break
         elif key == ord('n'):
-            accept = False
             break
     # plt.close('all')
     cv2.destroyAllWindows()
@@ -1033,7 +968,163 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
     return rectify_params
 
 
-def verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
+def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
+    """
+    Verify calibration
+    :param cams: list of camera objects
+    :param intrinsic_params: intrinsic calibration parameters for each camera
+    :param extrinsic_params: extrinsic calibration parameters for each camera
+    :return: whether or not to accept calibration
+    """
+
+    cam_list = {}
+    for cam in cams:
+        cam_list[cam.sn] = []
+
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'verify'))
+
+    # Initialize ArUco Tracking
+    cube = ArucoCube()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    xlim = [-0.001, 0.001]
+    ylim = [-0.001, 0.001]
+    zlim = [0, 0.001]
+    ax.set_xlim(xlim[0], xlim[1])
+    ax.set_ylim(ylim[0], ylim[1])
+    ax.set_zlim(zlim[0], zlim[1])
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    print('Accept final calibration (y/n)?')
+
+    while True:
+        cam_datas = []
+        cam_coords = {
+            'origin': {},
+            'x_axis': {},
+            'y_axis': {},
+            'z_axis': {}
+        }
+
+        for cam in cams:
+            cam_data = cam.next_frame()[:, :, :3].astype(np.uint8)
+            vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
+
+            k = intrinsic_params[cam.sn]['k']
+            d = intrinsic_params[cam.sn]['d']
+
+            gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
+
+            cam_coords['origin'][cam.sn] = np.array([])
+            cam_coords['x_axis'][cam.sn] = np.array([])
+            cam_coords['y_axis'][cam.sn] = np.array([])
+            cam_coords['z_axis'][cam.sn] = np.array([])
+
+            corners, ids, _ = aruco.detectMarkers(gray, cube.aruco_dict, parameters=detect_parameters)
+            pose, rvec, tvec = aruco.estimatePoseBoard(corners, ids, cube.board, k, d, rvec=None,
+                                                       tvec=None)
+
+            if pose:
+                vcam_data = cv2.putText(vcam_data, 'x', (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (0, 0, 255), 2)
+                vcam_data = cv2.putText(vcam_data, 'y', (30, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (0, 255, 0), 2)
+                vcam_data = cv2.putText(vcam_data, 'z', (50, 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                        2, (255, 0, 0), 2)
+                vcam_data = aruco.drawAxis(vcam_data.copy(), k, d, rvec, tvec, cube.marker_width)
+                vcam_data = aruco.drawDetectedMarkers(vcam_data.copy(), corners, ids)
+
+                origin, x_axis, y_axis, z_axis = cube.project(k, d, rvec, tvec)
+                cam_coords['origin'][cam.sn] = origin
+                cam_coords['x_axis'][cam.sn] = x_axis
+                cam_coords['y_axis'][cam.sn] = y_axis
+                cam_coords['z_axis'][cam.sn] = z_axis
+
+            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
+            cam_datas.append(resized)
+
+            cam_list[cam.sn].append(cam_data[:, :, :3])
+
+        ax.clear()
+        [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
+                                                   intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        [x_location, pairs_used] = locate_dlt(list(cam_coords['x_axis'].keys()), cam_coords['x_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        [y_location, pairs_used] = locate_dlt(list(cam_coords['y_axis'].keys()), cam_coords['y_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+        [z_location, pairs_used] = locate_dlt(list(cam_coords['z_axis'].keys()), cam_coords['z_axis'],
+                                              intrinsic_params, extrinsic_params, rectify_params=rectify_params)
+
+        cube.plot_3d(ax, origin_location, x_location, y_location, z_location)
+
+        xlim = [min(xlim[0], np.min(origin_location[:, 0]), np.min(x_location[:, 0]), np.min(y_location[:, 0]), np.min(z_location[:, 0])),
+                max(xlim[1], np.max(origin_location[:, 0]), np.max(x_location[:, 0]), np.max(y_location[:, 0]), np.max(z_location[:, 0]))]
+        ylim = [min(ylim[0], np.min(origin_location[:, 1]), np.min(x_location[:, 1]), np.min(y_location[:, 1]), np.min(z_location[:, 1])),
+                max(ylim[1], np.max(origin_location[:, 1]), np.max(x_location[:, 1]), np.max(y_location[:, 1]), np.max(z_location[:, 1]))]
+        zlim = [0,
+                max(zlim[1], np.max(origin_location[:, 2]), np.max(x_location[:, 2]), np.max(y_location[:, 2]), np.max(z_location[:, 2]))]
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_zlim(zlim)
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        # redraw the canvas
+        fig.canvas.draw()
+        # convert canvas to image
+        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        # img is rgb, convert to opencv's default bgr
+        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
+
+        ratio = resized.shape[0] / plt_img.shape[0]
+        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
+
+        if len(cam_datas) == 2:
+            data = np.hstack([resized_plt, cam_datas[0], cam_datas[1]])
+        elif len(cam_datas) == 3:
+            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, blank_cam, cam_datas[2]])])
+        else:
+            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
+            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
+
+        cv2.imshow("cam", data)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('y'):
+            accept = True
+            break
+        elif key == ord('n'):
+            accept = False
+            break
+
+    if accept:
+        # Save videos with frames used for sparse bundle adjustment
+        for cam in cams:
+            vid_list = cam_list[cam.sn]
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "verify_cam{}.avi".format(cam.sn)
+            cam_vid = cv2.VideoWriter(
+                os.paht.join(out_dir, 'videos', filename),
+                fourcc,
+                float(fps),
+                f_size
+            )
+            [cam_vid.write(i) for i in vid_list]
+            cam_vid.release()
+
+    return accept
+
+
+def verify_calibration_charuco_board(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
     """
     Verify calibration
     :param cams: list of camera objects
@@ -1259,7 +1350,7 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 
         # Test calibration
         if parameters['type'] == 'online':
-            calib_finished = verify_calibration(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir)
+            calib_finished = verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, out_dir)
             cv2.destroyAllWindows()
     # except:
     #    pass
