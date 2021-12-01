@@ -175,8 +175,8 @@ def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params, recti
             v2=rectify_params['y_axis'] - table_center
             v3=rectify_params['z_axis'] - table_center
             v1 = v1 / np.linalg.norm(v1)
-            v2 = v1 / np.linalg.norm(v2)
-            v3 = v1 / np.linalg.norm(v3)
+            v2 = v2 / np.linalg.norm(v2)
+            v3 = v3 / np.linalg.norm(v3)
             M_inv=np.linalg.inv(np.transpose(np.squeeze([v1,v2,v3])))
             location=np.transpose(np.matmul(M_inv,np.transpose((location-table_center))))
     return [location, cameras_used]
@@ -340,70 +340,102 @@ class DoubleCharucoBoard:
                 ax.scatter(inside_corner_locations[idx, 0], inside_corner_locations[idx, 1],
                            inside_corner_locations[idx, 2],
                            color=cmap.colors[col_idx], marker='o', s=1)
-        return outside_corner_locations
 
 
-def create_aruco_cube(plot=False, save_template=False):
-    markerWidth = 0.045  # This value is in meters
-    # Define Aruco board, which can be any 3D shape. See helper CAD file @ https://cad.onshape.com/documents/d51fdec31f121f572b802b11/w/83fac6aaee78bdc978fd804d/e/8ae3ae505e4af3c7402b131a
-    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
-    board_ids = np.array([[94], [95], [96], [97], [98], [99]], dtype=np.int32)
-    board_corners = [
-        np.array([[-0.022, 0.023, 0.03], [0.023, 0.022, 0.03], [0.023, -0.023, 0.03], [-0.022, -0.023, 0.03]],
-                 dtype=np.float32),
-        np.array([[-0.022, -0.03, 0.022], [0.023, -0.03, 0.022], [0.022, -0.03, -0.022], [-0.022, -0.03, -0.022]],
-                 dtype=np.float32),
-        np.array([[-0.03, -0.023, 0.022], [-0.03, -0.022, -0.023], [-0.03, 0.023, -0.022], [-0.03, 0.023, 0.023]],
-                 dtype=np.float32),
-        np.array([[-0.022, -0.022, -0.03], [0.023, -0.023, -0.03], [0.023, 0.023, -0.03], [-0.022, 0.023, -0.03]],
-                 dtype=np.float32),
-        np.array([[0.03, -0.023, -0.022], [0.03, -0.023, 0.023], [0.03, 0.023, 0.022], [0.03, 0.022, -0.023]],
-                 dtype=np.float32),
-        np.array([[-0.022, 0.03, -0.023], [0.023, 0.03, -0.022], [0.023, 0.03, 0.023], [-0.022, 0.03, 0.022]],
-                 dtype=np.float32)
-    ]
-    board = aruco.Board_create(board_corners, aruco_dict, board_ids)
+class ArucoCube:
+    def __init__(self):
+        self.marker_width = 0.045 # This value is in meters
+        self.aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
+        self.board_ids = np.array([[94], [95], [96], [97], [98], [99]], dtype=np.int32)
+        self.board_corners = [
+            np.array([[-0.022, 0.023, 0.03], [0.023, 0.022, 0.03], [0.023, -0.023, 0.03], [-0.022, -0.023, 0.03]],
+                     dtype=np.float32),
+            np.array([[-0.022, -0.03, 0.022], [0.023, -0.03, 0.022], [0.022, -0.03, -0.022], [-0.022, -0.03, -0.022]],
+                     dtype=np.float32),
+            np.array([[-0.03, -0.023, 0.022], [-0.03, -0.022, -0.023], [-0.03, 0.023, -0.022], [-0.03, 0.023, 0.023]],
+                     dtype=np.float32),
+            np.array([[-0.022, -0.022, -0.03], [0.023, -0.023, -0.03], [0.023, 0.023, -0.03], [-0.022, 0.023, -0.03]],
+                     dtype=np.float32),
+            np.array([[0.03, -0.023, -0.022], [0.03, -0.023, 0.023], [0.03, 0.023, 0.022], [0.03, 0.022, -0.023]],
+                     dtype=np.float32),
+            np.array([[-0.022, 0.03, -0.023], [0.023, 0.03, -0.022], [0.023, 0.03, 0.023], [-0.022, 0.03, 0.022]],
+                     dtype=np.float32)
+        ]
+        self.board = aruco.Board_create(self.board_corners, self.aruco_dict, self.board_ids)
+        self.imboard = self.draw_aruco_board()
 
-    imboard = drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids)
-    if plot:
+    def plot(self):
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        plt.imshow(imboard, cmap=matplotlib.cm.gray, interpolation="nearest")
+        plt.imshow(self.imboard, cmap=matplotlib.cm.gray, interpolation="nearest")
         ax.axis("off")
         plt.show()
 
-    if save_template:
-        # Create an image from the gridboard
-        cv2.imwrite("../aruco_cube.png", imboard)
+    def save(self):
+        cv2.imwrite("../aruco_cube.png", self.imboard)
 
-    return board
+    def draw_aruco_board(self):
+        paper_px_width = 300
+        paper_width = 0.2159  # This value is in meters, for 8.5x11" paper
+        face_width = 0.06  # This value is in meters
+        cube_template = np.ones((int(paper_px_width * 11 / 8.5), paper_px_width)) * 255
+        marker_px = int((self.marker_width / paper_width) * cube_template.shape[1] / 2)
+        face_px = int((face_width / paper_width) * cube_template.shape[1] / 2)
+
+        def drawMarkerAt(id, marker_center):
+            marker = aruco.drawMarker(self.aruco_dict, id, marker_px * 2, borderBits=1)
+            padded_marker = np.ones((face_px * 2, face_px * 2)) * 255
+            padding = face_px - marker_px
+            padded_marker[padding:(face_px * 2) - padding, padding:(face_px * 2) - padding] = marker
+            cv2.rectangle(padded_marker, (0, 0), (padded_marker.shape[0] - 1, padded_marker.shape[1] - 1), 0, 1)
+            cube_template[marker_center[1] - face_px:marker_center[1] + face_px, marker_center[0] - face_px:marker_center[0] + face_px] = padded_marker
+
+        drawMarkerAt(self.board_ids[0][0], (int(cube_template.shape[1] / 2), face_px))
+        drawMarkerAt(self.board_ids[1][0], (int(cube_template.shape[1] / 2), face_px + 1 * face_px * 2))
+        drawMarkerAt(self.board_ids[2][0], (int(cube_template.shape[1] / 2) - face_px * 2, face_px + 2 * face_px * 2))
+        drawMarkerAt(self.board_ids[3][0], (int(cube_template.shape[1] / 2), face_px + 2 * face_px * 2))
+        drawMarkerAt(self.board_ids[4][0], (int(cube_template.shape[1] / 2) + face_px * 2, face_px + 2 * face_px * 2))
+        drawMarkerAt(self.board_ids[5][0], (int(cube_template.shape[1] / 2), face_px + 3 * face_px * 2))
+        return cube_template
+
+    def project(self, k, d, rvec, tvec):
+        [rmat, _] = cv2.Rodrigues(rvec)
+        origin = np.zeros((3, 1))
+        pt_origin = np.matmul(rmat, origin) + tvec
+        [origin_projected, _] = cv2.projectPoints(pt_origin, (0, 0, 0), (0, 0, 0), k, d)
+        origin = np.squeeze(origin_projected)
+
+        x_axis = np.array([[self.marker_width], [0], [0]])
+        pt_x = np.matmul(rmat, x_axis) + tvec
+        [x_projected, _] = cv2.projectPoints(pt_x, (0, 0, 0), (0, 0, 0), k, d)
+        x_axis = np.squeeze(x_projected)
+
+        y_axis = np.array([[0], [self.marker_width], [0]])
+        pt_y = np.matmul(rmat, y_axis) + tvec
+        [y_projected, _] = cv2.projectPoints(pt_y, (0, 0, 0), (0, 0, 0), k, d)
+        y_axis = np.squeeze(y_projected)
+
+        z_axis = np.array([[0], [0], [self.marker_width]])
+        pt_z = np.matmul(rmat, z_axis) + tvec
+        [z_projected, _] = cv2.projectPoints(pt_z, (0, 0, 0), (0, 0, 0), k, d)
+        z_axis = np.squeeze(z_projected)
+
+        return origin, x_axis, y_axis, z_axis
+
+    @staticmethod
+    def plot_3d(ax, origin_location, x_location, y_location, z_location):
+        ax.scatter(origin_location[:, 0], origin_location[:, 1], origin_location[:, 2], c='k', marker='o', s=1)
+
+        ax.plot([origin_location[0, 0], x_location[0, 0]], [origin_location[0, 1], x_location[0, 1]],
+                [origin_location[0, 2], x_location[0, 2]], c='r')
+
+        ax.plot([origin_location[0, 0], y_location[0, 0]], [origin_location[0, 1], y_location[0, 1]],
+                [origin_location[0, 2], y_location[0, 2]], c='g')
+
+        ax.plot([origin_location[0, 0], z_location[0, 0]], [origin_location[0, 1], z_location[0, 1]],
+                [origin_location[0, 2], z_location[0, 2]], c='b')
 
 
-def drawArucoBoardPaperTemplate(aruco_dict, markerWidth, board_ids):
-    paperPxWidth = 300
-    paperWidth = 0.2159  # This value is in meters, for 8.5x11" paper
-    faceWidth = 0.06  # This value is in meters
-    cubeTemplate = np.ones((int(paperPxWidth * 11 / 8.5), paperPxWidth)) * 255
-    markerPx = int((markerWidth / paperWidth) * cubeTemplate.shape[1] / 2)
-    facePx = int((faceWidth / paperWidth) * cubeTemplate.shape[1] / 2)
-
-    def drawMarkerAt(id, markerCenter):
-        marker = aruco.drawMarker(aruco_dict, id, markerPx * 2, borderBits=1)
-        paddedMarker = np.ones((facePx * 2, facePx * 2)) * 255
-        padding = facePx - markerPx
-        paddedMarker[padding:(facePx * 2) - padding,
-        padding:(facePx * 2) - padding] = marker
-        cv2.rectangle(paddedMarker, (0, 0), (paddedMarker.shape[0] - 1, paddedMarker.shape[1] - 1), 0, 1)
-        cubeTemplate[markerCenter[1] - facePx:markerCenter[1] + facePx,
-        markerCenter[0] - facePx:markerCenter[0] + facePx] = paddedMarker
-
-    drawMarkerAt(board_ids[0][0], (int(cubeTemplate.shape[1] / 2), facePx))
-    drawMarkerAt(board_ids[1][0], (int(cubeTemplate.shape[1] / 2), facePx + 1 * facePx * 2))
-    drawMarkerAt(board_ids[2][0], (int(cubeTemplate.shape[1] / 2) - facePx * 2, facePx + 2 * facePx * 2))
-    drawMarkerAt(board_ids[3][0], (int(cubeTemplate.shape[1] / 2), facePx + 2 * facePx * 2))
-    drawMarkerAt(board_ids[4][0], (int(cubeTemplate.shape[1] / 2) + facePx * 2, facePx + 2 * facePx * 2))
-    drawMarkerAt(board_ids[5][0], (int(cubeTemplate.shape[1] / 2), facePx + 3 * facePx * 2))
-    return cubeTemplate
 
 if __name__ == '__main__':
     board = DoubleCharucoBoard()
