@@ -722,12 +722,12 @@ def intrinsic_cam_calibration(cam):
 
                 # Intrinsic calibration
                 if len(all_corners) >= 6:
-                    rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners,
-                                                                       charucoIds=all_ids,
+                    rpe, k, d, r, t = cv2.aruco.calibrateCameraCharuco(charucoCorners=all_corners[-10:],
+                                                                       charucoIds=all_ids[-10:],
                                                                        board=cam_board,
                                                                        imageSize=img_shape,
-                                                                       cameraMatrix=None,
-                                                                       distCoeffs=None,
+                                                                       cameraMatrix=k,
+                                                                       distCoeffs=d,
                                                                        flags=intrinsic_flags,
                                                                        criteria=intrinsic_term_crit)
                     # If there is a jump in RPE - exclude this point
@@ -1113,7 +1113,7 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             filename = "verify_cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.paht.join(out_dir, 'videos', filename),
+                os.path .join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
