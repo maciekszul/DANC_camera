@@ -219,19 +219,20 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
         ),
     )
 
-    # Save videos with frames used for sparse bundle adjustment
-    for cam in cams:
-        vid_list = cam_list[cam.sn]
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "sba_cam{}.avi".format(cam.sn)
-        cam_vid = cv2.VideoWriter(
-            os.path.join(out_dir, 'videos', filename),
-            fourcc,
-            float(fps),
-            f_size
-        )
-        [cam_vid.write(i) for i in vid_list]
-        cam_vid.release()
+    if parameters['type'] == 'online':
+        # Save videos with frames used for sparse bundle adjustment
+        for cam in cams:
+            vid_list = cam_list[cam.sn]
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "sba_cam{}.avi".format(cam.sn)
+            cam_vid = cv2.VideoWriter(
+                os.path.join(out_dir, 'videos', filename),
+                fourcc,
+                float(fps),
+                f_size
+            )
+            [cam_vid.write(i) for i in vid_list]
+            cam_vid.release()
 
 
 def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
@@ -262,7 +263,8 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
             cam2_sn = parameters['cam_sns'][cam2_idx]
 
             if parameters['type'] == 'offline':
-                cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'extrinsic_%s-%s' % (cam1_sn, cam2_sn)))
+                cams = init_file_sources(parameters, os.path.join(out_dir, 'videos',
+                                                                  'extrinsic_%s-%s' % (cam1_sn, cam2_sn)))
                 cam1 = cams[0]
                 cam2 = cams[1]
             else:
@@ -285,37 +287,38 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
                 't': r @ extrinsic_params[cam1_sn]['t'] + t
             }
 
-            # Save frames used to calibrate for cam1
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "extrinsic_{}-{}_cam{}.avi".format(
-                cam1_sn,
-                cam2_sn,
-                cam1_sn
-            )
-            cam1_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
-                fourcc,
-                float(fps),
-                f_size
-            )
-            [cam1_vid.write(i) for i in cam_list[cam1_sn]]
-            cam1_vid.release()
+            if parameters['type'] == 'online':
+                # Save frames used to calibrate for cam1
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                filename = "extrinsic_{}-{}_cam{}.avi".format(
+                    cam1_sn,
+                    cam2_sn,
+                    cam1_sn
+                )
+                cam1_vid = cv2.VideoWriter(
+                    os.path.join(out_dir, 'videos', filename),
+                    fourcc,
+                    float(fps),
+                    f_size
+                )
+                [cam1_vid.write(i) for i in cam_list[cam1_sn]]
+                cam1_vid.release()
 
-            # Save frames used to calibrate for cam2
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "extrinsic_{}-{}_cam{}.avi".format(
-                cam1_sn,
-                cam2_sn,
-                cam2_sn
-            )
-            cam2_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
-                fourcc,
-                float(fps),
-                f_size
-            )
-            [cam2_vid.write(i) for i in cam_list[cam2_sn]]
-            cam2_vid.release()
+                # Save frames used to calibrate for cam2
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                filename = "extrinsic_{}-{}_cam{}.avi".format(
+                    cam1_sn,
+                    cam2_sn,
+                    cam2_sn
+                )
+                cam2_vid = cv2.VideoWriter(
+                    os.path.join(out_dir, 'videos', filename),
+                    fourcc,
+                    float(fps),
+                    f_size
+                )
+                [cam2_vid.write(i) for i in cam_list[cam2_sn]]
+                cam2_vid.release()
 
     # Save extrinsic calibration parameters
     filename = "extrinsic_params.pickle"
@@ -629,17 +632,18 @@ def run_intrinsic_calibration(parameters, cams, out_dir):
             'rpe': rpe
         }
 
-        # Save frames for calibration
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "intrinsic_cam{}.avi".format(cam.sn)
-        cam_vid = cv2.VideoWriter(
-            os.path.join(out_dir, 'videos', filename),
-            fourcc,
-            float(fps),
-            f_size
-        )
-        [cam_vid.write(i) for i in cam_list]
-        cam_vid.release()
+        if parameters['type'] == 'online':
+            # Save frames for calibration
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "intrinsic_cam{}.avi".format(cam.sn)
+            cam_vid = cv2.VideoWriter(
+                os.path.join(out_dir, 'videos', filename),
+                fourcc,
+                float(fps),
+                f_size
+            )
+            [cam_vid.write(i) for i in cam_list]
+            cam_vid.release()
 
     # Save intrinsic parameters
     filename = "intrinsic_params.pickle"
@@ -951,19 +955,20 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
         ),
     )
 
-    # Save videos with frames used for sparse bundle adjustment
-    for cam in cams:
-        vid_list = cam_list[cam.sn]
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        filename = "rectify_cam{}.avi".format(cam.sn)
-        cam_vid = cv2.VideoWriter(
-            os.path.join(out_dir,'videos',filename),
-            fourcc,
-            float(fps),
-            f_size
-        )
-        [cam_vid.write(i) for i in vid_list]
-        cam_vid.release()
+    if parameters['type'] == 'online':
+        # Save videos with frames used for sparse bundle adjustment
+        for cam in cams:
+            vid_list = cam_list[cam.sn]
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            filename = "rectify_cam{}.avi".format(cam.sn)
+            cam_vid = cv2.VideoWriter(
+                os.path.join(out_dir,'videos',filename),
+                fourcc,
+                float(fps),
+                f_size
+            )
+            [cam_vid.write(i) for i in vid_list]
+            cam_vid.release()
 
     return rectify_params
 
@@ -1106,7 +1111,7 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
             accept = False
             break
 
-    if accept:
+    if accept and parameters['type'] == 'online':
         # Save videos with frames used for sparse bundle adjustment
         for cam in cams:
             vid_list = cam_list[cam.sn]
@@ -1292,59 +1297,75 @@ def verify_calibration_charuco_board(cams, intrinsic_params, extrinsic_params, r
     return accept
 
 
-def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True):
+def run_calibration(parameters, calib_folder=None):
     """
     Run all calibration
     :param parameters: Acquisition parameters
-    :param intrinsic: If 1, run instrinsic calibration, otherwise load from file
-    :param extrinsic: If 1, run extrinsic calibration, otherwise load from file
-    :param rectify: If 1, run rectification, otherwise load from file
-    :param collect_sba: Collect data for SBA
+    :param calib_folder: Path to calibration folder to rerun missing steps
     """
     cams = None
     if parameters['type'] == 'online':
         cams = init_camera_sources(parameters, fps, shutter, gain)
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    makefolder('./calibrations')
-    out_dir=os.path.join('./calibrations',timestamp)
-    os.mkdir(out_dir)
-    os.mkdir(os.path.join(out_dir,'videos'))
+    if calib_folder is None:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        makefolder('./calibrations')
+        out_dir = os.path.join('./calibrations', timestamp)
+        os.mkdir(out_dir)
+        os.mkdir(os.path.join(out_dir, 'videos'))
+    else:
+        out_dir = calib_folder
+
+        try:
+            handle = open(os.path.join(calib_folder, "intrinsic_params.pickle"))
+            intrinsic_params = pickle.load(handle)
+            handle.close()
+        except:
+            intrinsic_params = None
+
+        try:
+            handle = open(os.path.join(calib_folder, "extrinsic_params.pickle"))
+            extrinsic_params = pickle.load(handle)
+            handle.close()
+        except:
+            extrinsic_params = None
+
+        try:
+            handle = open(os.path.join(calib_folder, "rectify_params.pickle"))
+            rectify_params = pickle.load(handle)
+            handle.close()
+        except:
+            rectify_params = None
+
+        try:
+            handle = open(os.path.join(calib_folder, "sba_data.pickle"))
+            sba_data = pickle.load(handle)
+            handle.close()
+        except:
+            sba_data = None
 
     # Run until final acceptance
     calib_finished = False
-    # try:
+
     while not calib_finished:
 
         # Intrinsic calibration
-        if intrinsic == '1':
+        if intrinsic_params is None:
             intrinsic_params = run_intrinsic_calibration(parameters, cams, out_dir)
             cv2.destroyAllWindows()
-        else:
-            handle = open(intrinsic, "rb")
-            intrinsic_params = pickle.load(handle)
-            handle.close()
 
         # Extrinsic calibration
-        if extrinsic == '1':
+        if extrinsic_params is None:
             extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir)
             cv2.destroyAllWindows()
-        else:
-            handle = open(extrinsic, "rb")
-            extrinsic_params = pickle.load(handle)
-            handle.close()
 
         # Rectification
-        if rectify == '1':
+        if rectify_params is None:
             rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_dir)
             cv2.destroyAllWindows()
-        else:
-            handle = open(rectify, "rb")
-            rectify_params = pickle.load(handle)
-            handle.close()
 
         # Collect data for SBA
-        if collect_sba:
+        if sba_data is None:
             collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_dir)
             cv2.destroyAllWindows()
 
@@ -1352,8 +1373,6 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
         if parameters['type'] == 'online':
             calib_finished = verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, out_dir)
             cv2.destroyAllWindows()
-    # except:
-    #    pass
 
     # Close cameras
     for cam in cams:
@@ -1363,42 +1382,20 @@ def run_calibration(parameters, intrinsic, extrinsic, rectify, collect_sba=True)
 if __name__ == '__main__':
 
     try:
-        intrinsic = sys.argv[1]
-        print('USING: %s' % intrinsic)
-    except:
-        intrinsic = '1'
-        print('RUNNING: intrinsic')
-
-    try:
-        extrinsic = sys.argv[2]
-        print('USING: %s' % extrinsic)
-    except:
-        extrinsic = '1'
-        print('RUNNING: extrinsic')
-
-    try:
-        rectify = sys.argv[3]
-        print('USING: %s' % rectify)
-    except:
-        rectify = '1'
-        print('RUNNING: rectify')
-
-    try:
-        sba = sys.argv[4] == '1'
-    except:
-        sba = True
-    if sba:
-        print('RUNNING: sba')
-
-    try:
-        json_file = sys.argv[5]
+        json_file = sys.argv[1]
         print("USING: ", json_file)
     except:
         json_file = "settings.json"
         print("USING: ", json_file)
 
+    try:
+        calib_folder = sys.argv[2]
+        print('USING: %s' % calib_folder)
+    except:
+        calib_folder = None
+
     # opening a json file
     with open(json_file) as settings_file:
         params = json.load(settings_file)
 
-    run_calibration(params, intrinsic, extrinsic, rectify, collect_sba=sba)
+    run_calibration(params, calib_folder=calib_folder)
