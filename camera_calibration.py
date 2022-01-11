@@ -214,7 +214,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
             'camera_indices': camera_indices
         },
         open(
-            os.path.join(out_dir,filename),
+            os.path.join(out_dir, filename),
             "wb",
         ),
     )
@@ -235,7 +235,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
             cam_vid.release()
 
 
-def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
+def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out_dir):
     """
     Run extrinsic calibration for each pair of cameras
     :param parameters: Acquisition parameters
@@ -263,7 +263,7 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir):
             cam2_sn = parameters['cam_sns'][cam2_idx]
 
             if parameters['type'] == 'offline':
-                cams = init_file_sources(parameters, os.path.join(out_dir, 'videos',
+                cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos',
                                                                   'extrinsic_%s-%s' % (cam1_sn, cam2_sn)))
                 cam1 = cams[0]
                 cam2 = cams[1]
@@ -609,7 +609,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     return rms, r, t, cam_list
 
 
-def run_intrinsic_calibration(parameters, cams, out_dir):
+def run_intrinsic_calibration(parameters, cams, calib_dir, out_dir):
     """
     Run intrinsic calibration for each camera
     :param parameters: Acquisition parameters
@@ -619,7 +619,7 @@ def run_intrinsic_calibration(parameters, cams, out_dir):
     intrinsic_params = {}
 
     if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'intrinsic'))
+        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'intrinsic'))
 
     # Calibrate each camera
     for cam in cams:
@@ -799,13 +799,13 @@ def intrinsic_cam_calibration(cam):
     return rpe, k, d, cam_list
 
 
-def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_dir):
+def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, calib_dir, out_dir):
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'rectify'))
+
     cam_list = {}
     for cam in cams:
         cam_list[cam.sn] = []
-
-    if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'rectify'))
 
     # Initialize ArUco Tracking
     cube = ArucoCube()
@@ -824,6 +824,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
 
     print('Accept rectification (y/n)?')
 
+    finished = False
     while True:
         cam_datas = []
         cam_coords = {
@@ -835,6 +836,10 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
 
         for cam in cams:
             cam_data = cam.next_frame()
+            if cam_data is None:
+                finished = True
+                break
+
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
@@ -865,6 +870,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             cam_datas.append(resized)
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
+
+        if finished:
+            break
 
         ax1.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
@@ -962,7 +970,7 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             filename = "rectify_cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir,'videos',filename),
+                os.path.join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -973,7 +981,8 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_
     return rectify_params
 
 
-def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
+def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, calib_dir,
+                                  out_dir):
     """
     Verify calibration
     :param cams: list of camera objects
@@ -982,12 +991,12 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
     :return: whether or not to accept calibration
     """
 
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'verify'))
+
     cam_list = {}
     for cam in cams:
         cam_list[cam.sn] = []
-
-    if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(out_dir, 'videos', 'verify'))
 
     # Initialize ArUco Tracking
     cube = ArucoCube()
@@ -1006,6 +1015,8 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
     print('Accept final calibration (y/n)?')
 
+    finished = False
+
     while True:
         cam_datas = []
         cam_coords = {
@@ -1016,7 +1027,14 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
         }
 
         for cam in cams:
-            cam_data = cam.next_frame()[:, :, :3].astype(np.uint8)
+            cam_data = cam.next_frame()
+
+            if cam_data is None:
+                finished = True
+                accept = True
+                break
+
+            cam_data = cam_data[:, :, :3].astype(np.uint8)
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
             k = intrinsic_params[cam.sn]['k']
@@ -1054,6 +1072,9 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
 
+        if finished:
+            break
+
         ax.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -1066,12 +1087,17 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
         cube.plot_3d(ax, origin_location, x_location, y_location, z_location)
 
-        xlim = [min(xlim[0], np.min(origin_location[:, 0]), np.min(x_location[:, 0]), np.min(y_location[:, 0]), np.min(z_location[:, 0])),
-                max(xlim[1], np.max(origin_location[:, 0]), np.max(x_location[:, 0]), np.max(y_location[:, 0]), np.max(z_location[:, 0]))]
-        ylim = [min(ylim[0], np.min(origin_location[:, 1]), np.min(x_location[:, 1]), np.min(y_location[:, 1]), np.min(z_location[:, 1])),
-                max(ylim[1], np.max(origin_location[:, 1]), np.max(x_location[:, 1]), np.max(y_location[:, 1]), np.max(z_location[:, 1]))]
+        xlim = [min(xlim[0], np.min(origin_location[:, 0]), np.min(x_location[:, 0]), np.min(y_location[:, 0]),
+                    np.min(z_location[:, 0])),
+                max(xlim[1], np.max(origin_location[:, 0]), np.max(x_location[:, 0]), np.max(y_location[:, 0]),
+                    np.max(z_location[:, 0]))]
+        ylim = [min(ylim[0], np.min(origin_location[:, 1]), np.min(x_location[:, 1]), np.min(y_location[:, 1]),
+                    np.min(z_location[:, 1])),
+                max(ylim[1], np.max(origin_location[:, 1]), np.max(x_location[:, 1]), np.max(y_location[:, 1]),
+                    np.max(z_location[:, 1]))]
         zlim = [0,
-                max(zlim[1], np.max(origin_location[:, 2]), np.max(x_location[:, 2]), np.max(y_location[:, 2]), np.max(z_location[:, 2]))]
+                max(zlim[1], np.max(origin_location[:, 2]), np.max(x_location[:, 2]), np.max(y_location[:, 2]),
+                    np.max(z_location[:, 2]))]
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         ax.set_zlim(zlim)
@@ -1118,7 +1144,7 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             filename = "verify_cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path .join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -1297,52 +1323,60 @@ def verify_calibration_charuco_board(cams, intrinsic_params, extrinsic_params, r
     return accept
 
 
-def run_calibration(parameters, calib_folder=None):
+def run_calibration(parameters, calib_folder=None, output_folder=None):
     """
     Run all calibration
     :param parameters: Acquisition parameters
     :param calib_folder: Path to calibration folder to rerun missing steps
     """
     cams = None
-    if parameters['type'] == 'online':
+    if parameters['type'] == 'onlineout_dir':
         cams = init_camera_sources(parameters, fps, shutter, gain)
+
+    intrinsic_params = None
+    extrinsic_params = None
+    rectify_params = None
+    sba_data = None
 
     if calib_folder is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         makefolder('./calibrations')
-        out_dir = os.path.join('./calibrations', timestamp)
-        os.mkdir(out_dir)
-        os.mkdir(os.path.join(out_dir, 'videos'))
+        calib_folder = os.path.join('./calibrations', timestamp)
+        os.mkdir(calib_folder)
+        os.mkdir(os.path.join(calib_folder, 'videos'))
     else:
-        out_dir = calib_folder
-
         try:
-            handle = open(os.path.join(calib_folder, "intrinsic_params.pickle"))
+            handle = open(os.path.join(calib_folder, "intrinsic_params.pickle"), 'rb')
             intrinsic_params = pickle.load(handle)
             handle.close()
         except:
-            intrinsic_params = None
+            pass
 
         try:
-            handle = open(os.path.join(calib_folder, "extrinsic_params.pickle"))
+            handle = open(os.path.join(calib_folder, "extrinsic_params.pickle"), 'rb')
             extrinsic_params = pickle.load(handle)
             handle.close()
         except:
-            extrinsic_params = None
+            pass
 
         try:
-            handle = open(os.path.join(calib_folder, "rectify_params.pickle"))
+            handle = open(os.path.join(calib_folder, "rectify_params.pickle"), 'rb')
             rectify_params = pickle.load(handle)
             handle.close()
         except:
-            rectify_params = None
+            pass
 
         try:
-            handle = open(os.path.join(calib_folder, "sba_data.pickle"))
+            handle = open(os.path.join(calib_folder, "sba_data.pickle"), 'rb')
             sba_data = pickle.load(handle)
             handle.close()
         except:
-            sba_data = None
+            pass
+
+    if output_folder is None:
+        output_folder = calib_folder
+    else:
+        makefolder(output_folder)
 
     # Run until final acceptance
     calib_finished = False
@@ -1350,33 +1384,36 @@ def run_calibration(parameters, calib_folder=None):
     while not calib_finished:
 
         # Intrinsic calibration
-        if intrinsic_params is None:
-            intrinsic_params = run_intrinsic_calibration(parameters, cams, out_dir)
+        if intrinsic_params is None or parameters['type'] == 'offline':
+            intrinsic_params = run_intrinsic_calibration(parameters, cams, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
         # Extrinsic calibration
-        if extrinsic_params is None:
-            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, out_dir)
+        if extrinsic_params is None or parameters['type'] == 'offline':
+            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder,
+                                                         output_folder)
             cv2.destroyAllWindows()
 
         # Rectification
-        if rectify_params is None:
-            rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params, out_dir)
+        if rectify_params is None or parameters['type'] == 'offline':
+            rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params, calib_folder,
+                                               output_folder)
             cv2.destroyAllWindows()
 
         # Collect data for SBA
         if sba_data is None:
-            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_dir)
+            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder)
             cv2.destroyAllWindows()
 
         # Test calibration
-        if parameters['type'] == 'online':
-            calib_finished = verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, out_dir)
-            cv2.destroyAllWindows()
+        calib_finished = verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_params,
+                                                       rectify_params, calib_folder, output_folder)
+        cv2.destroyAllWindows()
 
     # Close cameras
-    for cam in cams:
-        cam.close()
+    if cams is not None:
+        for cam in cams:
+            cam.close()
 
 
 if __name__ == '__main__':
@@ -1394,8 +1431,14 @@ if __name__ == '__main__':
     except:
         calib_folder = None
 
+    try:
+        output_folder = sys.argv[3]
+        print('USING: %s' % output_folder)
+    except:
+        output_folder = None
+
     # opening a json file
     with open(json_file) as settings_file:
         params = json.load(settings_file)
 
-    run_calibration(params, calib_folder=calib_folder)
+    run_calibration(params, calib_folder=calib_folder, output_folder=output_folder)
