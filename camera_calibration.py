@@ -1330,7 +1330,7 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
     :param calib_folder: Path to calibration folder to rerun missing steps
     """
     cams = None
-    if parameters['type'] == 'onlineout_dir':
+    if parameters['type'] == 'online':
         cams = init_camera_sources(parameters, fps, shutter, gain)
 
     intrinsic_params = None
