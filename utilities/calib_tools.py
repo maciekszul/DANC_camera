@@ -242,8 +242,8 @@ class DoubleCharucoBoard:
         self.n_squares_height = 7  # number of squares height
         self.n_square_corners = (self.n_squares_height-1)*(self.n_squares_width-1)
 
-        self.square_length = 0.025 # 25mm
-        self.marker_length = 0.0175 # 17.5mm
+        self.square_length = 0.03 # 30mm
+        self.marker_length = 0.02 # 20mm
 
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
         self.board1 = cv2.aruco.CharucoBoard_create(self.n_squares_width, self.n_squares_height, self.square_length,
