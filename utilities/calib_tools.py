@@ -344,21 +344,42 @@ class DoubleCharucoBoard:
 
 class ArucoCube:
     def __init__(self):
-        self.marker_width = 0.045 # This value is in meters
+        # Cube is 40x40mm
+        self.cube_width = 0.040
+        # Markers are 30x30mm
+        self.marker_width = 0.030
         self.aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
-        self.board_ids = np.array([[94], [95], [96], [97], [98], [99]], dtype=np.int32)
+        self.board_ids = np.array([[0], [1], [2], [3], [4], [5]], dtype=np.int32)
         self.board_corners = [
-            np.array([[-0.022, 0.023, 0.03], [0.023, 0.022, 0.03], [0.023, -0.023, 0.03], [-0.022, -0.023, 0.03]],
+            np.array([[-.5*self.marker_width, .5*self.marker_width, .5*self.cube_width],
+                      [.5*self.marker_width, .5*self.marker_width, .5*self.cube_width],
+                      [.5*self.marker_width, -.5*self.marker_width, .5*self.cube_width],
+                      [-.5*self.marker_width, -.5*self.marker_width, .5*self.cube_width]],
                      dtype=np.float32),
-            np.array([[-0.022, -0.03, 0.022], [0.023, -0.03, 0.022], [0.022, -0.03, -0.022], [-0.022, -0.03, -0.022]],
+            np.array([[-.5*self.marker_width, -.5*self.cube_width, .5*self.marker_width],
+                      [.5*self.marker_width, -.5*self.cube_width, .5*self.marker_width],
+                      [.5*self.marker_width, -.5*self.cube_width, -.5*self.marker_width],
+                      [-.5*self.marker_width, -.5*self.cube_width, -.5*self.marker_width]],
                      dtype=np.float32),
-            np.array([[-0.03, -0.023, 0.022], [-0.03, -0.022, -0.023], [-0.03, 0.023, -0.022], [-0.03, 0.023, 0.023]],
+            np.array([[-.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width],
+                      [-.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width],
+                      [-.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width],
+                      [-.5*self.cube_width, .5*self.marker_width, .5*self.marker_width]],
                      dtype=np.float32),
-            np.array([[-0.022, -0.022, -0.03], [0.023, -0.023, -0.03], [0.023, 0.023, -0.03], [-0.022, 0.023, -0.03]],
+            np.array([[-.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width],
+                      [.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width],
+                      [.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width],
+                      [-.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width]],
                      dtype=np.float32),
-            np.array([[0.03, -0.023, -0.022], [0.03, -0.023, 0.023], [0.03, 0.023, 0.022], [0.03, 0.022, -0.023]],
+            np.array([[.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width],
+                      [.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width],
+                      [.5*self.cube_width, .5*self.marker_width, .5*self.marker_width],
+                      [.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width]],
                      dtype=np.float32),
-            np.array([[-0.022, 0.03, -0.023], [0.023, 0.03, -0.022], [0.023, 0.03, 0.023], [-0.022, 0.03, 0.022]],
+            np.array([[-.5*self.marker_width, .5*self.cube_width, -.5*self.marker_width],
+                      [.5*self.marker_width, .5*self.cube_width, -.5*self.marker_width],
+                      [.5*self.marker_width, .5*self.cube_width, .5*self.marker_width],
+                      [-.5*self.marker_width, .5*self.cube_width, .5*self.marker_width]],
                      dtype=np.float32)
         ]
         self.board = aruco.Board_create(self.board_corners, self.aruco_dict, self.board_ids)
