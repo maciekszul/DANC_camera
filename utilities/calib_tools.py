@@ -122,7 +122,7 @@ def triangulate_points(sn1, sn2, img_pts, intrinsic_params, extrinsic_params):
     return pts_3d
 
 
-def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
+def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params, rectify_params=None):
     location = np.zeros((1, 3))
     pairs_used = 0
     for idx1 in range(len(cam_sns)):
@@ -140,6 +140,17 @@ def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params):
                 pairs_used = pairs_used + 1
     if pairs_used > 0:
         location = location / pairs_used
+    # Apply rectification
+    if rectify_params is not None:
+        table_center = rectify_params['origin']
+        v1 = rectify_params['x_axis'] - table_center
+        v2 = rectify_params['y_axis'] - table_center
+        v3 = rectify_params['z_axis'] - table_center
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = v2 / np.linalg.norm(v2)
+        v3 = v3 / np.linalg.norm(v3)
+        M_inv = np.linalg.inv(np.transpose(np.squeeze([v1, v2, v3])))
+        location = np.transpose(np.matmul(M_inv, np.transpose((location - table_center))))
     return [location, pairs_used]
 
 
@@ -349,7 +360,7 @@ class ArucoCube:
         # Markers are 30x30mm
         self.marker_width = 0.030
         self.aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_100)
-        self.board_ids = np.array([[0], [1], [2], [3], [4], [5]], dtype=np.int32)
+        self.board_ids = np.array([[0], [5], [3], [2], [1], [4]], dtype=np.int32)
         self.board_corners = [
             np.array([[-.5*self.marker_width, .5*self.marker_width, .5*self.cube_width],
                       [.5*self.marker_width, .5*self.marker_width, .5*self.cube_width],
@@ -361,20 +372,20 @@ class ArucoCube:
                       [.5*self.marker_width, -.5*self.cube_width, -.5*self.marker_width],
                       [-.5*self.marker_width, -.5*self.cube_width, -.5*self.marker_width]],
                      dtype=np.float32),
-            np.array([[-.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width],
-                      [-.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width],
-                      [-.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width],
-                      [-.5*self.cube_width, .5*self.marker_width, .5*self.marker_width]],
+            np.array([[-.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width],
+                      [-.5*self.cube_width, .5*self.marker_width, .5*self.marker_width],
+                      [-.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width],
+                      [-.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width]],
                      dtype=np.float32),
-            np.array([[-.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width],
-                      [.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width],
-                      [.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width],
-                      [-.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width]],
+            np.array([[.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width],
+                      [-.5*self.marker_width, .5*self.marker_width, -.5*self.cube_width],
+                      [-.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width],
+                      [.5*self.marker_width, -.5*self.marker_width, -.5*self.cube_width]],
                      dtype=np.float32),
-            np.array([[.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width],
-                      [.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width],
-                      [.5*self.cube_width, .5*self.marker_width, .5*self.marker_width],
-                      [.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width]],
+            np.array([[.5*self.cube_width, .5*self.marker_width, .5*self.marker_width],
+                      [.5*self.cube_width, .5*self.marker_width, -.5*self.marker_width],
+                      [.5*self.cube_width, -.5*self.marker_width, -.5*self.marker_width],
+                      [.5*self.cube_width, -.5*self.marker_width, .5*self.marker_width]],
                      dtype=np.float32),
             np.array([[-.5*self.marker_width, .5*self.cube_width, -.5*self.marker_width],
                       [.5*self.marker_width, .5*self.cube_width, -.5*self.marker_width],
