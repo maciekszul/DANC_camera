@@ -4,6 +4,7 @@ from camera_io import init_camera_sources, shtr_spd
 from utilities.tools import quick_resize
 import cv2
 import sys
+import numpy as np
 
 try:
     json_file = sys.argv[1]
@@ -49,9 +50,18 @@ try:
             resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
             cam_datas.append(resized)
 
-        final_frame = cv2.vconcat(
-            [cv2.hconcat([cam_datas[0], cam_datas[1]]), cv2.hconcat([cam_datas[2], cam_datas[3]])]
-        )
+        if len(cam_datas)==1:
+            final_frame = cam_datas[0]
+        elif len(cam_datas)==2:
+            final_frame = cv2.hconcat([cam_datas[0], cam_datas[1]])
+        elif len(cam_datas)==3:
+            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
+            data = np.vstack([np.hstack([cam_datas[0], cam_datas[1]]),
+                              np.hstack([blank_cam, cam_datas[2]])])
+        else:
+            final_frame = cv2.vconcat(
+                [cv2.hconcat([cam_datas[0], cam_datas[1]]), cv2.hconcat([cam_datas[2], cam_datas[3]])]
+            )
 
         cv2.imshow("cam", final_frame)
         cv2.waitKey(1)
