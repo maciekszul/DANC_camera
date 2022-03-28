@@ -7,7 +7,7 @@ from datetime import datetime
 import numpy as np
 import os.path as op
 
-from camera_io import init_camera_sources, shtr_spd, get_wb_coef
+from camera_io import init_camera_sources, shtr_spd
 from utilities.tools import makefolder
 
 
@@ -23,11 +23,6 @@ with open('settings.json') as settings_file:
 fps = 200
 gain = 5
 shutter = shtr_spd(fps)
-
-kR_cam0, kG_cam0, kB_cam0 = get_wb_coef(params['cam_sns'][0], 30, shutter, gain)
-kR_cam1, kG_cam1, kB_cam1 = get_wb_coef(params['cam_sns'][1], 30, shutter, gain)
-kR_cam2, kG_cam2, kB_cam2 = get_wb_coef(params['cam_sns'][2], 30, shutter, gain)
-kR_cam3, kG_cam3, kB_cam3 = get_wb_coef(params['cam_sns'][3], 30, shutter, gain)
 
 cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, disable_auto_bandwidth=True,
                          img_data_format='XI_RAW8', auto_wb=False, counter_selector='XI_CNT_SEL_API_SKIPPED_FRAMES')
@@ -61,8 +56,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": params['cam_sns'][0],
-            "WB_auto_coeff_RGB": [kR_cam0, kG_cam0, kB_cam0]
+            "sn": params['cam_sns'][0]
         }
 
         metadata_cam1 = {
@@ -70,8 +64,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": params['cam_sns'][1],
-            "WB_auto_coeff_RGB": [kR_cam1, kG_cam1, kB_cam1]
+            "sn": params['cam_sns'][1]
         }
 
         metadata_cam2 = {
@@ -79,8 +72,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": params['cam_sns'][2],
-            "WB_auto_coeff_RGB": [kR_cam2, kG_cam2, kB_cam2]
+            "sn": params['cam_sns'][2]
         }
 
         metadata_cam3 = {
@@ -88,8 +80,7 @@ while True:
             "framerate": fps,
             "shutter_speed": shutter,
             "gain": gain,
-            "sn": params['cam_sns'][3],
-            "WB_auto_coeff_RGB": [kR_cam3, kG_cam3, kB_cam3]
+            "sn": params['cam_sns'][3]
         }
 
         cam0_l = []
@@ -117,7 +108,7 @@ while True:
             co1 = cams[1].next_frame()
             cam1_l.append(co1)
             metadata_cam1["frame_timestamp"].append(time.monotonic())
-            
+
             co2 = cams[2].next_frame()
             cam2_l.append(co2)
             metadata_cam2["frame_timestamp"].append(time.monotonic())
@@ -125,8 +116,8 @@ while True:
             co3 = cams[3].next_frame()
             cam3_l.append(co3)
             metadata_cam3["frame_timestamp"].append(time.monotonic())
-            
-            
+
+
             # print(counter)
             if "stop" in data:
                 s.setblocking(1)
