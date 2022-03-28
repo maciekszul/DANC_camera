@@ -340,8 +340,8 @@ def run_simult_extrinsic_calibration(parameters, cams, intrinsic_params, calib_d
                         if pose:
                             vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, board.square_length)
                             detected[cam_idx] = 1
-                            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
-                            vcam_datas.append(resized)
+            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
+            vcam_datas.append(resized)
             cam_charuco_ids.append(charuco_ids)
             cam_charuco_corners_sub.append(charuco_corners_sub)
 
@@ -751,7 +751,7 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                     imgpoints[cam1.sn].append(np.array(pts1).astype(np.float32))
                     imgpoints[cam2.sn].append(np.array(pts2).astype(np.float32))
 
-                    if len(objpoints) >= 6:
+                    if len(objpoints) >= 10:
                         # Stereo calibration - keep intrinsic parameters fixed
                         rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn],
                                                                           imgpoints[cam2.sn],
@@ -786,33 +786,34 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
 
                         # Triangulate
                         ax1.clear()
-                        cam_outside_corners = {}
-                        cam_inside_corners = {}
-                        cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1,
-                                                                                                  rvec1, tvec1)
-                        cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2,
-                                                                                                  rvec2, tvec2)
+                        if cam1.sn in extrinsic_params and cam2.sn in extrinsic_params:
+                            cam_outside_corners = {}
+                            cam_inside_corners = {}
+                            cam_outside_corners[cam1.sn], cam_inside_corners[cam1.sn] = board.project(cam1_board, k1, d1,
+                                                                                                      rvec1, tvec1)
+                            cam_outside_corners[cam2.sn], cam_inside_corners[cam2.sn] = board.project(cam2_board, k2, d2,
+                                                                                                      rvec2, tvec2)
 
-                        outside_corner_locations = np.zeros((4, 3))
-                        for idx in range(4):
-                            img_points = {}
-                            for sn in cam_outside_corners.keys():
-                                if len(cam_outside_corners[sn]):
-                                    img_points[sn] = cam_outside_corners[sn][idx, :]
-                            [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                                    intrinsic_params,
-                                                                                    extrinsic_params)
-                        inside_corner_locations = np.zeros((board.n_square_corners, 3))
-                        for idx in range(board.n_square_corners):
-                            img_points = {}
-                            for sn in cam_inside_corners.keys():
-                                if len(cam_inside_corners[sn]):
-                                    img_points[sn] = cam_inside_corners[sn][idx, :]
-                            [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
-                                                                                   intrinsic_params,
-                                                                                   extrinsic_params)
+                            outside_corner_locations = np.zeros((4, 3))
+                            for idx in range(4):
+                                img_points = {}
+                                for sn in cam_outside_corners.keys():
+                                    if len(cam_outside_corners[sn]):
+                                        img_points[sn] = cam_outside_corners[sn][idx, :]
+                                [outside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                                        intrinsic_params,
+                                                                                        extrinsic_params)
+                            inside_corner_locations = np.zeros((board.n_square_corners, 3))
+                            for idx in range(board.n_square_corners):
+                                img_points = {}
+                                for sn in cam_inside_corners.keys():
+                                    if len(cam_inside_corners[sn]):
+                                        img_points[sn] = cam_inside_corners[sn][idx, :]
+                                [inside_corner_locations[idx, :], pairs_used] = locate(list(img_points.keys()), img_points,
+                                                                                       intrinsic_params,
+                                                                                       extrinsic_params)
 
-                        board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
+                            board.plot_3d(ax1, outside_corner_locations, inside_corner_locations)
                         ax1.set_xlabel("X")
                         ax1.set_ylabel("Y")
                         ax1.set_zlabel("Z")
@@ -1268,9 +1269,10 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    xlim = [-0.001, 0.001]
-    ylim = [-0.001, 0.001]
-    zlim = [0, 0.001]
+    lim=.001
+    xlim = [-lim, lim]
+    ylim = [-lim, lim]
+    zlim = [-.001, lim-0.001]
     ax.set_xlim(xlim[0], xlim[1])
     ax.set_ylim(ylim[0], ylim[1])
     ax.set_zlim(zlim[0], zlim[1])
@@ -1279,8 +1281,6 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
     ax.set_zlabel("Z")
 
     print('Accept final calibration (y/n)?')
-
-    finished = False
 
     while True:
         cam_datas = []
@@ -1293,12 +1293,6 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
         for cam in cams:
             cam_data = cam.next_frame()
-
-            if cam_data is None:
-                finished = True
-                accept = True
-                break
-
             cam_data = cam_data[:, :, :3].astype(np.uint8)
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
@@ -1337,9 +1331,6 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
 
-        if finished:
-            break
-
         ax.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -1352,17 +1343,11 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
         cube.plot_3d(ax, origin_location, x_location, y_location, z_location)
 
-        xlim = [min(xlim[0], np.min(origin_location[:, 0]), np.min(x_location[:, 0]), np.min(y_location[:, 0]),
-                    np.min(z_location[:, 0])),
-                max(xlim[1], np.max(origin_location[:, 0]), np.max(x_location[:, 0]), np.max(y_location[:, 0]),
-                    np.max(z_location[:, 0]))]
-        ylim = [min(ylim[0], np.min(origin_location[:, 1]), np.min(x_location[:, 1]), np.min(y_location[:, 1]),
-                    np.min(z_location[:, 1])),
-                max(ylim[1], np.max(origin_location[:, 1]), np.max(x_location[:, 1]), np.max(y_location[:, 1]),
-                    np.max(z_location[:, 1]))]
-        zlim = [0,
-                max(zlim[1], np.max(origin_location[:, 2]), np.max(x_location[:, 2]), np.max(y_location[:, 2]),
-                    np.max(z_location[:, 2]))]
+        #lim=np.max([lim, np.min([5, np.max(np.abs(np.vstack([origin_location,x_location,y_location,z_location])))])])
+        lim=.5
+        xlim = [-lim, lim]
+        ylim = [-lim, lim]
+        zlim = [-0.1, 2*lim-0.1]
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         ax.set_zlim(zlim)
@@ -1420,7 +1405,8 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
     return accept
 
 
-def verify_calibration_charuco_board(cams, intrinsic_params, extrinsic_params, rectify_params, out_dir):
+def verify_calibration_charuco_board(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, calib_dir,
+                                    out_dir):
     """
     Verify calibration
     :param cams: list of camera objects
@@ -1428,6 +1414,9 @@ def verify_calibration_charuco_board(cams, intrinsic_params, extrinsic_params, r
     :param extrinsic_params: extrinsic calibration parameters for each camera
     :return: whether or not to accept calibration
     """
+
+    if parameters['type'] == 'offline':
+        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'verify'))
 
     cam_list = {}
     for cam in cams:
@@ -1649,14 +1638,14 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
     while not calib_finished:
 
         # Intrinsic calibration
-        # if intrinsic_params is None or parameters['type'] == 'offline':
-        #     intrinsic_params = run_intrinsic_calibration(parameters, cams, calib_folder, output_folder)
-        #     cv2.destroyAllWindows()
+        if intrinsic_params is None or parameters['type'] == 'offline':
+            intrinsic_params = run_intrinsic_calibration(parameters, cams, calib_folder, output_folder)
+            cv2.destroyAllWindows()
 
         # Extrinsic calibration
         if extrinsic_params is None or parameters['type'] == 'offline':
-            extrinsic_params = run_simult_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder,
-                                                                output_folder)
+            #extrinsic_params = run_simult_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder,
+            extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
         # Rectification
