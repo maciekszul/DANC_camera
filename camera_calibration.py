@@ -29,7 +29,7 @@ gain = 5
 f_size = (1280, 1024)
 
 
-def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_dir):
+def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_dir, out_dir):
     """
     Collect data for sparse bundle adjustment
     :param parameters: Acquisition parameters
@@ -39,7 +39,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, out_d
     """
 
     if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, 'sba')
+        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'sba'))
 
     # Initialize array
     cam_list = {}
@@ -1656,7 +1656,7 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
 
         # Collect data for SBA
         if sba_data is None:
-            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder)
+            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
         # Test calibration
