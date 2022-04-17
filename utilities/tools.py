@@ -1,5 +1,7 @@
 from __future__ import division
 
+import json
+
 import cv2
 import numpy as np
 import os
@@ -80,3 +82,10 @@ def quick_resize(data, scale, og_width, og_height):
         interpolation=cv2.INTER_AREA
     )
     return resized
+
+def dump_the_dict(file, dictionary):
+    """
+    Function dumps dictionary to a JSON file.
+    """
+    with open(file, "w") as json_file:
+        json.dump(dictionary, json_file, indent=4)
