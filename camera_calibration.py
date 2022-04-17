@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
 from utilities.calib_tools import locate, DoubleCharucoBoard, locate_dlt, ArucoCube
-from utilities.tools import quick_resize, makefolder
+from utilities.tools import quick_resize, makefolder, dump_the_dict
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
 stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 1e-5)
@@ -1631,6 +1631,9 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
         output_folder = calib_folder
     else:
         makefolder(output_folder)
+
+    settings_file=os.path.join(output_folder, 'settings.json')
+    dump_the_dict(settings_file, parameters)
 
     # Run until final acceptance
     calib_finished = False

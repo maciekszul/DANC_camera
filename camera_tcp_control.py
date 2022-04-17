@@ -8,7 +8,7 @@ import numpy as np
 import os.path as op
 
 from camera_io import init_camera_sources, shtr_spd
-from utilities.tools import makefolder
+from utilities.tools import makefolder, dump_the_dict
 
 
 def dump_and_run(lists, path):
@@ -42,6 +42,9 @@ makefolder('./data')
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 out_dir=os.path.join('./data',timestamp)
 os.mkdir(out_dir)
+
+settings_file=os.path.join(out_dir, 'settings.json')
+dump_the_dict(settings_file, params)
 
 while True:
     data_raw = s.recv(buffer_size)
