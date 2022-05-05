@@ -694,12 +694,12 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
         if cam1_board is not None and len(marker_corners1) > 0:
             [ret1, charuco_corners1, charuco_ids1] = cv2.aruco.interpolateCornersCharuco(marker_corners1, marker_ids1,
                                                                                          gray1, cam1_board)
-            if min(cam1_board.ids) > 34:
-                for idx in range(0, len(charuco_ids1)):
-                    if charuco_ids1[idx][0] in dict_idx.keys():
-                        charuco_ids1[idx][0] = dict_idx.get(charuco_ids1[idx][0])
-
             if ret1 > 0:
+                if min(cam1_board.ids) > 34:
+                    for idx in range(0, len(charuco_ids1)):
+                        if charuco_ids1[idx][0] in dict_idx.keys():
+                            charuco_ids1[idx][0] = dict_idx.get(charuco_ids1[idx][0])
+
                 charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
                                                         subcorner_term_crit)
 
@@ -712,12 +712,12 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
             [ret2, charuco_corners2, charuco_ids2] = cv2.aruco.interpolateCornersCharuco(marker_corners2, marker_ids2,
                                                                                          gray2, cam2_board)
 
-            if min(cam2_board.ids) > 34:
-                for idx in range(0, len(charuco_ids2)):
-                    if charuco_ids2[idx][0] in dict_idx.keys():
-                        charuco_ids2[idx][0] = dict_idx.get(charuco_ids2[idx][0])
-
             if ret2 > 0:
+                if min(cam2_board.ids) > 34:
+                    for idx in range(0, len(charuco_ids2)):
+                        if charuco_ids2[idx][0] in dict_idx.keys():
+                            charuco_ids2[idx][0] = dict_idx.get(charuco_ids2[idx][0])
+
                 charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
                                                         subcorner_term_crit)
 
