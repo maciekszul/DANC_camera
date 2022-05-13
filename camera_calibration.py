@@ -15,9 +15,9 @@ from utilities.calib_tools import locate, DoubleCharucoBoard, locate_dlt, ArucoC
 from utilities.tools import quick_resize, makefolder, dump_the_dict
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
-stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 1e-5)
-intrinsic_flags = cv2.CALIB_RATIONAL_MODEL + cv2.CALIB_FIX_PRINCIPAL_POINT
-intrinsic_term_crit = (cv2.TERM_CRITERIA_EPS & cv2.TERM_CRITERIA_COUNT, 10000, 1e-9)
+stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 80, 1e-6)
+intrinsic_flags = cv2.CALIB_FIX_K3 | cv2.CALIB_ZERO_TANGENT_DIST
+intrinsic_term_crit = (cv2.TERM_CRITERIA_MAX_ITER | cv2.TERM_CRITERIA_EPS, 100, 1e-7)
 
 # Initialize ArUco Tracking
 detect_parameters = aruco.DetectorParameters_create()
@@ -527,56 +527,52 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out
     :return: extrinsic calibration parameters for each camera
     """
 
-    # Rotation matrix for first camera - all others are relative to it
+    # Rotation matrix for primary camera - all others are relative to it
+    primary_cam=parameters['primary_cam']
+    primary_cam_idx=parameters['cam_sns'].index(primary_cam)
     extrinsic_params = {
-        parameters['cam_sns'][0]: {
+        primary_cam: {
             'r': np.array([[1, 0, 0],
-                           [0, 0, -1],
-                           [0, 1, 0]], dtype=np.float32),
-            't': np.array([[0, 0, 0]], dtype=np.float32).T
+                           [0, 1, 0],
+                           [0, 0, 1]], dtype=np.float32),
+            't': np.array([[0, 0, 0]], dtype=np.float32).T,
+            'rms': 0
         }
     }
 
     # Go through each camera
-    for cam1_idx in range(len(parameters['cam_sns'])):
-        cam1_sn = parameters['cam_sns'][cam1_idx]
+    for cam2_idx in range(len(parameters['cam_sns'])):
+        cam2_sn = parameters['cam_sns'][cam2_idx]
 
-        # For every other camera (except pairs already calibrated)
-        for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
-            cam2_sn = parameters['cam_sns'][cam2_idx]
+        if not cam2_sn==primary_cam:
 
             if parameters['type'] == 'offline':
                 cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos',
-                                                                  'extrinsic_%s-%s' % (cam1_sn, cam2_sn)))
+                                                                  'extrinsic_%s-%s' % (primary_cam, cam2_sn)))
                 cam1 = cams[0]
                 cam2 = cams[1]
             else:
-                cam1 = cams[cam1_idx]
+                cam1 = cams[primary_cam_idx]
                 cam2 = cams[cam2_idx]
 
             # Calibrate pair
-            print("Computing stereo calibration for cam %d and %d" % (cam1_idx, cam2_idx))
+            print("Computing stereo calibration for cam %d and %d" % (primary_cam_idx, cam2_idx))
             rms, r, t, cam_list = extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsic_params)
             print(f"{rms:.5f} pixels")
 
-            extrinsic_params['%s-%s_rms' % (cam1_sn, cam2_sn)] = rms
-
-            # https://en.wikipedia.org/wiki/Camera_resectioning#Extrinsic_parameters
-            # T is the world origin position in the camera coordinates.
-            # The world position of the camera is C = -(R^-1)@T.
-            # Similarly, the rotation of the camera in world coordinates is given by R^-1
-            extrinsic_params[cam2_sn] = {
-                'r': r @ extrinsic_params[cam1_sn]['r'],
-                't': r @ extrinsic_params[cam1_sn]['t'] + t
+            extrinsic_params[cam2_sn]={
+                'r': r,
+                't': t,
+                'rms': rms
             }
 
             if parameters['type'] == 'online':
                 # Save frames used to calibrate for cam1
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 filename = "extrinsic_{}-{}_cam{}.avi".format(
-                    cam1_sn,
+                    primary_cam,
                     cam2_sn,
-                    cam1_sn
+                    primary_cam
                 )
                 cam1_vid = cv2.VideoWriter(
                     os.path.join(out_dir, 'videos', filename),
@@ -584,13 +580,13 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out
                     float(fps),
                     f_size
                 )
-                [cam1_vid.write(i) for i in cam_list[cam1_sn]]
+                [cam1_vid.write(i) for i in cam_list[primary_cam]]
                 cam1_vid.release()
 
                 # Save frames used to calibrate for cam2
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                 filename = "extrinsic_{}-{}_cam{}.avi".format(
-                    cam1_sn,
+                    primary_cam,
                     cam2_sn,
                     cam2_sn
                 )
@@ -631,8 +627,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     objpoints = []
     imgpoints = {cam1.sn: [], cam2.sn: []}
     r = np.array([[1, 0, 0],
-                  [0, 0, -1],
-                  [0, 1, 0]], dtype=np.float32)
+                  [0, 1, 0],
+                  [0, 0, 1]], dtype=np.float32)
     t = np.array([[0, 0, 0]], dtype=np.float32).T
 
     board = DoubleCharucoBoard()
