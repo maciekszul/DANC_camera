@@ -2,5 +2,5 @@
   "cam_sns": ["08154551","08150951","08151951","08152151"],
   "primary_cam": "08154551",
   "cam_locs": ["FR", "FL", "BR", "BL"],
-  "type": "offline"
+  "type": "online"
 }
