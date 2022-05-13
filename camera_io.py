@@ -104,10 +104,10 @@ def init_camera_sources(parameters, fps, shutter, gain, sensor_feature_value=Non
     return srcs
 
 
-def init_file_sources(parameters, prefix):
+def init_file_sources(parameters, folder):
     srcs = []
     for sn in parameters['cam_sns']:
-        src = FileSource(sn, '%s_cam%s.avi' % (prefix, sn))
+        src = FileSource(sn, os.path.join(folder, 'cam%s.avi' % sn))
         src.init()
         if src.vidcap is not None:
             srcs.append(src)

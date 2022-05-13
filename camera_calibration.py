@@ -242,280 +242,15 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
         for cam in cams:
             vid_list = cam_list[cam.sn]
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "sba_cam{}.avi".format(cam.sn)
+            filename = "cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', 'sba', filename),
                 fourcc,
                 float(fps),
                 f_size
             )
             [cam_vid.write(i) for i in vid_list]
             cam_vid.release()
-
-
-def run_simult_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out_dir):
-    """
-    Run extrinsic calibration for each pair of cameras
-    :param parameters: Acquisition parameters
-    :param cams: list of camera objects
-    :param intrinsic_params: intrinsic calibration parameters for each camera
-    :return: extrinsic calibration parameters for each camera
-    """
-
-    if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'extrinsic'))
-
-    # Initialize array
-    cam_list = {}
-    for cam in cams:
-        cam_list[cam.sn] = []
-
-    board = DoubleCharucoBoard()
-
-    min_frames = 50
-
-    pair_objpoints = {}
-    pair_imgpoints = {}
-    for cam1_idx in range(len(parameters['cam_sns'])):
-        cam1_sn = parameters['cam_sns'][cam1_idx]
-        for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
-            cam2_sn = parameters['cam_sns'][cam2_idx]
-            pair_objpoints['%s_%s' % (cam1_sn, cam2_sn)] = []
-            pair_imgpoints['%s_%s' % (cam1_sn, cam2_sn)] = {cam1_sn: [], cam2_sn: []}
-
-    while True:
-        # Frames for each camera
-        cam_datas = []
-        vcam_datas = []
-
-        # Go through each camera
-        video_finished = True
-        for cam_idx, cam in enumerate(cams):
-
-            # Get image from camera
-            cam_data = cam.next_frame()
-            if cam_data is not None:
-                video_finished = False
-            else:
-                break
-            cam_datas.append(cam_data)
-
-        if len(cam_datas) == 0:
-            break
-
-        detected = np.zeros((len(cams), 1))
-        cam_boards = []
-        cam_charuco_ids = []
-        cam_charuco_corners_sub = []
-
-        for cam_idx, cam in enumerate(cams):
-            cam_data = cam_datas[cam_idx]
-            vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
-
-            k = intrinsic_params[cam.sn]['k']
-            d = intrinsic_params[cam.sn]['d']
-
-            # Convert to greyscale for chess board detection
-            gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-            img_shape = gray.shape[::-1]
-
-            # Find the chess board corners - fast checking
-            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
-                                                                      parameters=detect_parameters)
-
-            cam_board = board.get_detected_board(marker_ids)
-            cam_boards.append(cam_board)
-
-            charuco_ids = []
-            charuco_corners_sub = []
-
-            if cam_board is not None and len(marker_corners) > 0:
-
-                [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
-                                                                                          gray, cam_board)
-                if ret > 0:
-                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
-                                                           subcorner_term_crit)
-
-                    vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
-                    vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
-                    vcam_data = cv2.aruco.drawDetectedCornersCharuco(vcam_data.copy(), charuco_corners_sub,
-                                                                     charuco_ids)
-
-                    if ret > 20:
-
-                        # Estimate the posture of the charuco board, which is a construction of 3D space based on the
-                        # 2D video
-                        pose, rvec, tvec = aruco.estimatePoseCharucoBoard(
-                            charucoCorners=charuco_corners_sub,
-                            charucoIds=charuco_ids,
-                            board=cam_board,
-                            cameraMatrix=k,
-                            distCoeffs=d,
-                            rvec=None,
-                            tvec=None
-                        )
-                        if pose:
-                            vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, board.square_length)
-                            detected[cam_idx] = 1
-            resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
-            vcam_datas.append(resized)
-            cam_charuco_ids.append(charuco_ids)
-            cam_charuco_corners_sub.append(charuco_corners_sub)
-
-        if np.sum(detected) > 0:
-            for cam_idx, cam in enumerate(cams):
-                cam_data = cam_datas[cam_idx]
-                cam_list[cam.sn].append(cam_data[:, :, :3])
-
-            for cam1_idx in range(len(parameters['cam_sns'])):
-                cam1_sn = parameters['cam_sns'][cam1_idx]
-                for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
-                    cam2_sn = parameters['cam_sns'][cam2_idx]
-                    if detected[cam1_idx] and detected[cam2_idx]:
-                        corners = []
-                        pts1 = []
-                        pts2 = []
-                        n_pts = 0
-                        for cam_corner_id in range(board.n_square_corners):
-                            cam1_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam_boards[cam1_idx])
-                            cam2_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam_boards[cam2_idx])
-
-                            if len(np.where(cam_charuco_ids[cam1_idx] == cam1_corner_id)[0]) and \
-                                    len(np.where(cam_charuco_ids[cam2_idx] == cam2_corner_id)[0]):
-                                corners.append(cam_boards[cam1_idx].chessboardCorners[cam1_corner_id, :])
-
-                                c1_idx = np.where(cam_charuco_ids[cam1_idx] == cam1_corner_id)[0][0]
-                                pts1.append(cam_charuco_corners_sub[cam1_idx][c1_idx, :, :])
-
-                                c2_idx = np.where(cam_charuco_ids[cam2_idx] == cam2_corner_id)[0][0]
-                                pts2.append(cam_charuco_corners_sub[cam2_idx][c2_idx, :, :])
-                                n_pts = n_pts + 1
-
-                        if len(corners):
-                            # Add to list of object points
-                            pair_objpoints['%s_%s' % (cam1_sn, cam2_sn)].append(
-                                np.array(corners).reshape((n_pts, 3)).astype(np.float32))
-                            pair_imgpoints['%s_%s' % (cam1_sn, cam2_sn)][cam1_sn].append(
-                                np.array(pts1).astype(np.float32))
-                            pair_imgpoints['%s_%s' % (cam1_sn, cam2_sn)][cam2_sn].append(
-                                np.array(pts2).astype(np.float32))
-
-        if video_finished:
-            break
-
-        # Show camera images
-        if len(vcam_datas) == 1:
-            data = vcam_datas[0]
-        elif len(vcam_datas) == 2:
-            data = np.hstack([vcam_datas[0], vcam_datas[1]])
-        elif len(vcam_datas) == 3:
-            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[2]])])
-        else:
-            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[3]])])
-        cv2.imshow("cam", data)
-        key = cv2.waitKey(1) & 0xFF
-
-        # Quit if enough frames
-        if key == ord('y') or np.min([len(pair_objpoints[x]) for x in pair_objpoints.keys()]) >= min_frames:
-            break
-        # Start over
-        elif key == ord('n'):
-            # Initialize array
-            cam_list = {}
-            for cam in cams:
-                cam_list[cam.sn] = []
-            pair_objpoints = {}
-            pair_imgpoints = {}
-            for cam1_idx in range(len(parameters['cam_sns'])):
-                cam1_sn = parameters['cam_sns'][cam1_idx]
-                for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
-                    cam2_sn = parameters['cam_sns'][cam2_idx]
-                    pair_objpoints['%s_%s' % (cam1_sn, cam2_sn)] = []
-                    pair_imgpoints['%s_%s' % (cam1_sn, cam2_sn)] = {cam1_sn: [], cam2_sn: []}
-
-    # Rotation matrix for first camera - all others are relative to it
-    extrinsic_params = {
-        parameters['cam_sns'][0]: {
-            'r': np.array([[1, 0, 0],
-                           [0, 0, -1],
-                           [0, 1, 0]], dtype=np.float32),
-            't': np.array([[0, 0, 0]], dtype=np.float32).T
-        }
-    }
-
-    # Go through each camera
-    for cam1_idx in range(len(parameters['cam_sns'])):
-        cam1_sn = parameters['cam_sns'][cam1_idx]
-
-        # For every other camera (except pairs already calibrated)
-        for cam2_idx in range(cam1_idx + 1, len(parameters['cam_sns'])):
-            cam2_sn = parameters['cam_sns'][cam2_idx]
-
-            print("Computing stereo calibration for cam %d and %d" % (cam1_idx, cam2_idx))
-
-            # Get intrinsic parameters for each camera
-            k1 = intrinsic_params[cam1_sn]['k']
-            d1 = intrinsic_params[cam1_sn]['d']
-            k2 = intrinsic_params[cam2_sn]['k']
-            d2 = intrinsic_params[cam2_sn]['d']
-
-            objpoints = pair_objpoints['%s_%s' % (cam1_sn, cam2_sn)]
-            imgpoints = pair_imgpoints['%s_%s' % (cam1_sn, cam2_sn)]
-
-            r = np.array([[1, 0, 0],
-                          [0, 0, -1],
-                          [0, 1, 0]], dtype=np.float32)
-            t = np.array([[0, 0, 0]], dtype=np.float32).T
-
-            # Final stereo calibration - keep intrinsic parameters fixed
-            (rms, *_, r, t, _, _) = cv2.stereoCalibrate(objpoints, imgpoints[cam1_sn], imgpoints[cam2_sn],
-                                                        k1, d1, k2, d2, img_shape, flags=cv2.CALIB_FIX_INTRINSIC,
-                                                        criteria=stereo_term_crit)
-            # Mean RMSE
-            n_pts = []
-            for obj in objpoints:
-                n_pts.append(obj.shape[0])
-            rms = rms / np.mean(n_pts)
-
-            print(f"{rms:.5f} pixels")
-
-            # https://en.wikipedia.org/wiki/Camera_resectioning#Extrinsic_parameters
-            # T is the world origin position in the camera coordinates.
-            # The world position of the camera is C = -(R^-1)@T.
-            # Similarly, the rotation of the camera in world coordinates is given by R^-1
-            extrinsic_params[cam2_sn] = {
-                'r': r @ extrinsic_params[cam1_sn]['r'],
-                't': r @ extrinsic_params[cam1_sn]['t'] + t
-            }
-
-    if parameters['type'] == 'online':
-        for cam_idx in range(len(parameters['cam_sns'])):
-            cam_sn = parameters['cam_sns'][cam_idx]
-            # Save frames used to calibrate for cam1
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "extrinsic_cam{}.avi".format(
-                cam_sn
-            )
-            cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
-                fourcc,
-                float(fps),
-                f_size
-            )
-            [cam_vid.write(i) for i in cam_list[cam_sn]]
-            cam_vid.release()
-
-    # Save extrinsic calibration parameters
-    filename = "extrinsic_params.pickle"
-    pickle.dump(
-        extrinsic_params,
-        open(
-            os.path.join(out_dir, filename),
-            "wb",
-        ),
-    )
-    return extrinsic_params
 
 
 def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out_dir):
@@ -545,13 +280,14 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out
         cam2_sn = parameters['cam_sns'][cam2_idx]
 
         if not cam2_sn==primary_cam:
+            combo_dir = os.path.join(calib_dir, 'videos', 'extrinsic', 'cam%s-cam%s' % (primary_cam, cam2_sn))
 
             if parameters['type'] == 'offline':
-                cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos',
-                                                                  'extrinsic_%s-%s' % (primary_cam, cam2_sn)))
+                cams = init_file_sources(parameters, combo_dir)
                 cam1 = cams[0]
                 cam2 = cams[1]
             else:
+                makefolder(combo_dir)
                 cam1 = cams[primary_cam_idx]
                 cam2 = cams[cam2_idx]
 
@@ -569,13 +305,9 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out
             if parameters['type'] == 'online':
                 # Save frames used to calibrate for cam1
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                filename = "extrinsic_{}-{}_cam{}.avi".format(
-                    primary_cam,
-                    cam2_sn,
-                    primary_cam
-                )
+                filename = "cam{}.avi".format(primary_cam)
                 cam1_vid = cv2.VideoWriter(
-                    os.path.join(out_dir, 'videos', filename),
+                    os.path.join(combo_dir, filename),
                     fourcc,
                     float(fps),
                     f_size
@@ -585,13 +317,9 @@ def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out
 
                 # Save frames used to calibrate for cam2
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                filename = "extrinsic_{}-{}_cam{}.avi".format(
-                    primary_cam,
-                    cam2_sn,
-                    cam2_sn
-                )
+                filename = "cam{}.avi".format(cam2_sn)
                 cam2_vid = cv2.VideoWriter(
-                    os.path.join(out_dir, 'videos', filename),
+                    os.path.join(combo_dir, filename),
                     fourcc,
                     float(fps),
                     f_size
@@ -925,9 +653,9 @@ def run_intrinsic_calibration(parameters, cams, calib_dir, out_dir):
         if parameters['type'] == 'online':
             # Save frames for calibration
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "intrinsic_cam{}.avi".format(cam.sn)
+            filename = "cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', 'intrinsic', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -1258,9 +986,9 @@ def run_rectification(parameters, cams, extrinsic_params, intrinsic_params, cali
         for cam in cams:
             vid_list = cam_list[cam.sn]
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "rectify_cam{}.avi".format(cam.sn)
+            filename = "cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', 'rectify', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -1416,9 +1144,9 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
         for cam in cams:
             vid_list = cam_list[cam.sn]
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "verify_cam{}.avi".format(cam.sn)
+            filename = "cam{}.avi".format(cam.sn)
             cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', 'verify', filename),
                 fourcc,
                 float(fps),
                 f_size
@@ -1622,6 +1350,11 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
         calib_folder = os.path.join('./calibrations', timestamp)
         os.mkdir(calib_folder)
         os.mkdir(os.path.join(calib_folder, 'videos'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'intrinsic'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'extrinsic'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'rectify'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'sba'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'verify'))
     else:
         try:
             handle = open(os.path.join(calib_folder, "intrinsic_params.pickle"), 'rb')
@@ -1671,7 +1404,6 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
 
         # Extrinsic calibration
         if extrinsic_params is None or parameters['type'] == 'offline':
-            #extrinsic_params = run_simult_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder,
             extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
