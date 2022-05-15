@@ -16,8 +16,10 @@ from utilities.tools import quick_resize, makefolder, dump_the_dict
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
 stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 80, 1e-6)
+online_stereo_term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 10, 1e-4)
 intrinsic_flags = cv2.CALIB_FIX_K3 | cv2.CALIB_ZERO_TANGENT_DIST
 intrinsic_term_crit = (cv2.TERM_CRITERIA_MAX_ITER | cv2.TERM_CRITERIA_EPS, 100, 1e-7)
+online_intrinsic_term_crit = (cv2.TERM_CRITERIA_MAX_ITER | cv2.TERM_CRITERIA_EPS, 10, 1e-4)
 
 # Initialize ArUco Tracking
 detect_parameters = aruco.DetectorParameters_create()
@@ -114,8 +116,11 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                                 if charuco_ids[idx][0] in dict_idx.keys():
                                     charuco_ids[idx][0] = dict_idx.get(charuco_ids[idx][0])
 
-                        charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
-                                                               subcorner_term_crit)
+                        if parameters['type']=='offline':
+                            charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                                                   subcorner_term_crit)
+                        else:
+                            charuco_corners_sub=charuco_corners
 
                         vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                         vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
@@ -181,7 +186,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                             camera_indices.append(cam_idx)
                             c[cam.sn] = cam_corners[cam.sn][c_idx]
 
-                    point_3d_est, paires_used = locate(visible_cams, c, intrinsic_params, extrinsic_params)
+                    point_3d_est, pairs_used = locate_dlt(visible_cams, c, intrinsic_params, extrinsic_params)
 
                     points_3d.append(point_3d_est)
                     point_idx_counter += 1
@@ -426,8 +431,11 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         if charuco_ids1[idx][0] in dict_idx.keys():
                             charuco_ids1[idx][0] = dict_idx.get(charuco_ids1[idx][0])
 
-                charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
-                                                        subcorner_term_crit)
+                if parameters['type']=='offline':
+                    charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
+                                                            subcorner_term_crit)
+                else:
+                    charuco_corners_sub1 = charuco_corners1
 
                 vcam1_data = cv2.rectangle(vcam1_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                 vcam1_data = cv2.aruco.drawDetectedMarkers(vcam1_data.copy(), marker_corners1, marker_ids1)
@@ -444,8 +452,11 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         if charuco_ids2[idx][0] in dict_idx.keys():
                             charuco_ids2[idx][0] = dict_idx.get(charuco_ids2[idx][0])
 
-                charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
-                                                        subcorner_term_crit)
+                if parameters['type']=='offline':
+                    charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
+                                                            subcorner_term_crit)
+                else:
+                    charuco_corners_sub2 = charuco_corners2
 
                 vcam2_data = cv2.rectangle(vcam2_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                 vcam2_data = cv2.aruco.drawDetectedMarkers(vcam2_data.copy(), marker_corners2, marker_ids2)
@@ -507,11 +518,11 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
 
                     if len(objpoints) >= 10:
                         # Stereo calibration - keep intrinsic parameters fixed
-                        rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints, imgpoints[cam1.sn],
-                                                                          imgpoints[cam2.sn],
+                        rms, *_, r_new, t_new, _, _ = cv2.stereoCalibrate(objpoints[-10:], imgpoints[cam1.sn][-10:],
+                                                                          imgpoints[cam2.sn][-10:],
                                                                           k1, d1, k2, d2, img_shape1,
                                                                           flags=cv2.CALIB_FIX_INTRINSIC,
-                                                                          criteria=stereo_term_crit)
+                                                                          criteria=online_stereo_term_crit)
                         # Mean RMSE
                         n_pts = []
                         for obj in objpoints:
@@ -531,8 +542,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                             t = t_new
 
                             extrinsic_params[cam2.sn] = {
-                                'r': r @ extrinsic_params[cam1.sn]['r'],
-                                't': r @ extrinsic_params[cam1.sn]['t'] + t
+                                'r': r,
+                                't': t
                             }
 
                             cam_list[cam1.sn].append(cam1_data[:, :, :3])
@@ -740,7 +751,10 @@ def intrinsic_cam_calibration(cam):
                                                                                       cam_board)
 
             if ret > 20:
-                charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
+                if params['type']=='offline':
+                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
+                else:
+                    charuco_corners_sub=charuco_corners
 
                 all_corners.append(charuco_corners_sub)
                 all_ids.append(charuco_ids)
@@ -759,7 +773,7 @@ def intrinsic_cam_calibration(cam):
                                                                        cameraMatrix=k,
                                                                        distCoeffs=d,
                                                                        flags=intrinsic_flags,
-                                                                       criteria=intrinsic_term_crit)
+                                                                       criteria=online_intrinsic_term_crit)
                     # If there is a jump in RPE - exclude this point
                     if len(rpes) > 0 and rpe - rpes[-1] > 0.5:
                         all_corners.pop()
