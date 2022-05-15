@@ -121,6 +121,17 @@ def triangulate_points(sn1, sn2, img_pts, intrinsic_params, extrinsic_params):
     pts_3d = (pts_4d[:3] / pts_4d[3]).T
     return pts_3d
 
+def rectify_coord(coord, rectify_params):
+    table_center = rectify_params['origin']
+    v1 = rectify_params['x_axis'] - table_center
+    v2 = rectify_params['y_axis'] - table_center
+    v3 = rectify_params['z_axis'] - table_center
+    v1 = v1 / np.linalg.norm(v1)
+    v2 = v2 / np.linalg.norm(v2)
+    v3 = v3 / np.linalg.norm(v3)
+    M_inv = np.linalg.inv(np.transpose(np.squeeze([v1, v2, v3])))
+    coord = np.transpose(np.matmul(M_inv, np.transpose((coord - table_center))))
+    return coord
 
 def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params, rectify_params=None):
     location = np.zeros((1, 3))
@@ -142,15 +153,7 @@ def locate(cam_sns, camera_coords, intrinsic_params, extrinsic_params, rectify_p
         location = location / pairs_used
     # Apply rectification
     if rectify_params is not None:
-        table_center = rectify_params['origin']
-        v1 = rectify_params['x_axis'] - table_center
-        v2 = rectify_params['y_axis'] - table_center
-        v3 = rectify_params['z_axis'] - table_center
-        v1 = v1 / np.linalg.norm(v1)
-        v2 = v2 / np.linalg.norm(v2)
-        v3 = v3 / np.linalg.norm(v3)
-        M_inv = np.linalg.inv(np.transpose(np.squeeze([v1, v2, v3])))
-        location = np.transpose(np.matmul(M_inv, np.transpose((location - table_center))))
+        location = rectify_coord(location, rectify_params)
     return [location, pairs_used]
 
 
@@ -181,17 +184,8 @@ def locate_dlt(cam_sns, camera_coords, intrinsic_params, extrinsic_params, recti
 
         # Apply rectification
         if rectify_params is not None:
-            table_center = rectify_params['origin']
-            v1=rectify_params['x_axis'] - table_center
-            v2=rectify_params['y_axis'] - table_center
-            v3=rectify_params['z_axis'] - table_center
-            v1 = v1 / np.linalg.norm(v1)
-            v2 = v2 / np.linalg.norm(v2)
-            v3 = v3 / np.linalg.norm(v3)
-            M_inv=np.linalg.inv(np.transpose(np.squeeze([v1,v2,v3])))
-            location=np.transpose(np.matmul(M_inv,np.transpose((location-table_center))))
+            location = rectify_coord(location, rectify_params)
     return [location, cameras_used]
-
 
 
 def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params, rectify_params=None):
@@ -246,15 +240,7 @@ def locate_sba(cam_sns, camera_coords, intrinsic_params, extrinsic_params, recti
 
     # Apply rectification
     if rectify_params is not None:
-        table_center = rectify_params['origin']
-        v1 = rectify_params['x_axis'] - table_center
-        v2 = rectify_params['y_axis'] - table_center
-        v3 = rectify_params['z_axis'] - table_center
-        v1 = v1 / np.linalg.norm(v1)
-        v2 = v2 / np.linalg.norm(v2)
-        v3 = v3 / np.linalg.norm(v3)
-        M_inv = np.linalg.inv(np.transpose(np.squeeze([v1, v2, v3])))
-        pts_3d = np.transpose(np.matmul(M_inv, np.transpose((pts_3d - table_center))))
+        pts_3d = rectify_coord(pts_3d, rectify_params)
 
     return [pts_3d, pairs_used]
 
