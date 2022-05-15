@@ -11,7 +11,7 @@ import pickle
 import matplotlib.pyplot as plt
 
 from camera_io import init_camera_sources, init_file_sources, shtr_spd
-from utilities.calib_tools import locate, DoubleCharucoBoard, locate_dlt, ArucoCube
+from utilities.calib_tools import locate, DoubleCharucoBoard, locate_dlt, ArucoCube, rectify_coord
 from utilities.tools import quick_resize, makefolder, dump_the_dict
 
 subcorner_term_crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
@@ -387,6 +387,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
     ax2.set_xlabel("frame")
     ax2.set_ylabel("RMS")
 
+    maxabs_coords=0
+
     # Acquire enough good frames - until RMSE low enough at at least min frames collected
     while rms > rms_threshold or len(imgpoints[cam1.sn]) < min_frames:
         # Get image from cam1 and 2
@@ -569,6 +571,12 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         ax1.set_xlabel("X")
                         ax1.set_ylabel("Y")
                         ax1.set_zlabel("Z")
+                        maxabs_coords=np.max([maxabs_coords, np.max(np.abs(ax1.get_xlim()))])
+                        maxabs_coords = np.max([maxabs_coords, np.max(np.abs(ax1.get_ylim()))])
+                        maxabs_coords = np.max([maxabs_coords, np.max(np.abs(ax1.get_zlim()))])
+                        ax1.set_xlim(-maxabs_coords, maxabs_coords)
+                        ax1.set_ylim(-maxabs_coords, maxabs_coords)
+                        ax1.set_zlim(-maxabs_coords, maxabs_coords)
 
         # Plot RMSE
         ax2.clear()
@@ -1019,20 +1027,25 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
     # Initialize ArUco Tracking
     cube = ArucoCube()
 
+    maxabs_coords=0
+    for cam in cams:
+        t=extrinsic_params[cam.sn]['t']
+        coord=rectify_coord(t.T, rectify_params).T
+        maxabs_coords=np.max([maxabs_coords, np.max(np.abs(coord))])
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    lim=.001
-    xlim = [-lim, lim]
-    ylim = [-lim, lim]
-    zlim = [-.001, lim-0.001]
-    ax.set_xlim(xlim[0], xlim[1])
-    ax.set_ylim(ylim[0], ylim[1])
-    ax.set_zlim(zlim[0], zlim[1])
+    ax.set_xlim(-maxabs_coords, maxabs_coords)
+    ax.set_ylim(-maxabs_coords, maxabs_coords)
+    ax.set_zlim(-maxabs_coords, maxabs_coords)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
 
     print('Accept final calibration (y/n)?')
+
+    accept = True
+    finished = False
 
     while True:
         cam_datas = []
@@ -1045,6 +1058,11 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
         for cam in cams:
             cam_data = cam.next_frame()
+
+            if cam_data is None:
+                finished = True
+                break
+
             cam_data = cam_data[:, :, :3].astype(np.uint8)
             vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
 
@@ -1083,6 +1101,9 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
             cam_list[cam.sn].append(cam_data[:, :, :3])
 
+        if finished:
+            break
+
         ax.clear()
         [origin_location, pairs_used] = locate_dlt(list(cam_coords['origin'].keys()), cam_coords['origin'],
                                                    intrinsic_params, extrinsic_params, rectify_params=rectify_params)
@@ -1095,14 +1116,9 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
 
         cube.plot_3d(ax, origin_location, x_location, y_location, z_location)
 
-        #lim=np.max([lim, np.min([5, np.max(np.abs(np.vstack([origin_location,x_location,y_location,z_location])))])])
-        lim=.5
-        xlim = [-lim, lim]
-        ylim = [-lim, lim]
-        zlim = [-0.1, 2*lim-0.1]
-        ax.set_xlim(xlim)
-        ax.set_ylim(ylim)
-        ax.set_zlim(zlim)
+        ax.set_xlim(-maxabs_coords, maxabs_coords)
+        ax.set_ylim(-maxabs_coords, maxabs_coords)
+        ax.set_zlim(-maxabs_coords, maxabs_coords)
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
@@ -1139,7 +1155,7 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
             accept = False
             break
 
-    if accept and parameters['type'] == 'online':
+    if parameters['type'] == 'online' and accept:
         # Save videos with frames used for sparse bundle adjustment
         for cam in cams:
             vid_list = cam_list[cam.sn]
