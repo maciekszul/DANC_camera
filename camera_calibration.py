@@ -116,11 +116,8 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                                 if charuco_ids[idx][0] in dict_idx.keys():
                                     charuco_ids[idx][0] = dict_idx.get(charuco_ids[idx][0])
 
-                        if parameters['type']=='offline':
-                            charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
-                                                                   subcorner_term_crit)
-                        else:
-                            charuco_corners_sub=charuco_corners
+                        charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                                               subcorner_term_crit)
 
                         vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                         vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
@@ -186,7 +183,7 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                             camera_indices.append(cam_idx)
                             c[cam.sn] = cam_corners[cam.sn][c_idx]
 
-                    point_3d_est, pairs_used = locate_dlt(visible_cams, c, intrinsic_params, extrinsic_params)
+                    point_3d_est, pairs_used = locate(visible_cams, c, intrinsic_params, extrinsic_params)
 
                     points_3d.append(point_3d_est)
                     point_idx_counter += 1
@@ -431,11 +428,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         if charuco_ids1[idx][0] in dict_idx.keys():
                             charuco_ids1[idx][0] = dict_idx.get(charuco_ids1[idx][0])
 
-                if parameters['type']=='offline':
-                    charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
-                                                            subcorner_term_crit)
-                else:
-                    charuco_corners_sub1 = charuco_corners1
+                charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
+                                                        subcorner_term_crit)
 
                 vcam1_data = cv2.rectangle(vcam1_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                 vcam1_data = cv2.aruco.drawDetectedMarkers(vcam1_data.copy(), marker_corners1, marker_ids1)
@@ -452,11 +446,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                         if charuco_ids2[idx][0] in dict_idx.keys():
                             charuco_ids2[idx][0] = dict_idx.get(charuco_ids2[idx][0])
 
-                if parameters['type']=='offline':
-                    charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
-                                                            subcorner_term_crit)
-                else:
-                    charuco_corners_sub2 = charuco_corners2
+                charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
+                                                        subcorner_term_crit)
 
                 vcam2_data = cv2.rectangle(vcam2_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
                 vcam2_data = cv2.aruco.drawDetectedMarkers(vcam2_data.copy(), marker_corners2, marker_ids2)
@@ -751,10 +742,7 @@ def intrinsic_cam_calibration(cam):
                                                                                       cam_board)
 
             if ret > 20:
-                if params['type']=='offline':
-                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
-                else:
-                    charuco_corners_sub=charuco_corners
+                charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1), subcorner_term_crit)
 
                 all_corners.append(charuco_corners_sub)
                 all_ids.append(charuco_ids)
