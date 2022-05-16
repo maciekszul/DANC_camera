@@ -1025,6 +1025,7 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
     cam_list = {}
     for cam in cams:
         cam_list[cam.sn] = []
+    out_frame_list=[]
 
     # Initialize ArUco Tracking
     cube = ArucoCube()
@@ -1148,177 +1149,8 @@ def verify_calibration_aruco_cube(parameters, cams, intrinsic_params, extrinsic_
             data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
                               np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
 
-        cv2.imshow("cam", data)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('y'):
-            accept = True
-            break
-        elif key == ord('n'):
-            accept = False
-            break
-
-    if parameters['type'] == 'online' and accept:
-        # Save videos with frames used for sparse bundle adjustment
-        for cam in cams:
-            vid_list = cam_list[cam.sn]
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "cam{}.avi".format(cam.sn)
-            cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', 'verify', filename),
-                fourcc,
-                float(fps),
-                f_size
-            )
-            [cam_vid.write(i) for i in vid_list]
-            cam_vid.release()
-
-    return accept
-
-
-def verify_calibration_charuco_board(parameters, cams, intrinsic_params, extrinsic_params, rectify_params, calib_dir,
-                                    out_dir):
-    """
-    Verify calibration
-    :param cams: list of camera objects
-    :param intrinsic_params: intrinsic calibration parameters for each camera
-    :param extrinsic_params: extrinsic calibration parameters for each camera
-    :return: whether or not to accept calibration
-    """
-
-    if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'verify'))
-
-    cam_list = {}
-    for cam in cams:
-        cam_list[cam.sn] = []
-
-    axis_size = 0.025  # This value is in meters
-
-    board = DoubleCharucoBoard()
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    xlim = [-0.001, 0.001]
-    ylim = [-0.001, 0.001]
-    zlim = [-0.001, 0.001]
-    ax.set_xlim(xlim[0], xlim[1])
-    ax.set_ylim(ylim[0], ylim[1])
-    ax.set_zlim(zlim[0], zlim[1])
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-
-    print('Accept final calibration (y/n)?')
-
-    while True:
-        cam_datas = []
-        cam_outside_corners = {}
-        cam_inside_corners = {}
-
-        for cam in cams:
-            cam_data = cam.next_frame()[:, :, :3].astype(np.uint8)
-            k = intrinsic_params[cam.sn]['k']
-            d = intrinsic_params[cam.sn]['d']
-
-            gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-
-            cam_outside_corners[cam.sn] = np.array([])
-            cam_inside_corners[cam.sn] = np.array([])
-
-            [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
-                                                                      parameters=detect_parameters)
-            cam_board = board.get_detected_board(marker_ids)
-
-            if cam_board is not None and len(marker_corners) > 0:
-
-                [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
-                                                                                          gray, cam_board)
-                if ret > 0:
-                    charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
-                                                           subcorner_term_crit)
-
-                    cam_data = cv2.rectangle(cam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
-                    cam_data = cv2.aruco.drawDetectedMarkers(cam_data.copy(), marker_corners, marker_ids)
-                    cam_data = cv2.aruco.drawDetectedCornersCharuco(cam_data.copy(), charuco_corners_sub,
-                                                                    charuco_ids)
-
-                    # Estimate the posture of the charuco board, which is a construction of 3D space based on the 2D
-                    # video
-                    pose, rvec, tvec = aruco.estimatePoseCharucoBoard(
-                        charucoCorners=charuco_corners_sub,
-                        charucoIds=charuco_ids,
-                        board=cam_board,
-                        cameraMatrix=k,
-                        distCoeffs=d,
-                        rvec=None,
-                        tvec=None
-                    )
-                    if pose:
-                        cam_data = aruco.drawAxis(cam_data, k, d, rvec, tvec, axis_size)
-                        cam_outside_corners[cam.sn], cam_inside_corners[cam.sn] = board.project(cam_board, k, d, rvec,
-                                                                                                tvec)
-
-            resized = quick_resize(cam_data, 0.5, f_size[0], f_size[1])
-            cam_datas.append(resized)
-
-            cam_list[cam.sn].append(cam_data[:, :, :3])
-
-        ax.clear()
-        outside_corner_locations = np.zeros((4, 3))
-        for idx in range(4):
-            img_points = {}
-            for sn in cam_outside_corners.keys():
-                if len(cam_outside_corners[sn]):
-                    img_points[sn] = cam_outside_corners[sn][idx, :]
-            [outside_corner_locations[idx, :], _] = locate_dlt(list(img_points.keys()), img_points,
-                                                               intrinsic_params, extrinsic_params, rectify_params)
-        inside_corner_locations = np.zeros((board.n_square_corners, 3))
-        for idx in range(board.n_square_corners):
-            img_points = {}
-            for sn in cam_inside_corners.keys():
-                if len(cam_inside_corners[sn]):
-                    img_points[sn] = cam_inside_corners[sn][idx, :]
-            [inside_corner_locations[idx, :], _] = locate_dlt(list(img_points.keys()), img_points,
-                                                              intrinsic_params, extrinsic_params, rectify_params)
-
-        board.plot_3d(ax, outside_corner_locations, inside_corner_locations)
-
-        if outside_corner_locations.shape[0] > 0:
-            xlim = [min(xlim[0], np.min(outside_corner_locations[:, 0])),
-                    max(xlim[1], np.max(outside_corner_locations[:, 0]))]
-            ylim = [min(ylim[0], np.min(outside_corner_locations[:, 1])),
-                    max(ylim[1], np.max(outside_corner_locations[:, 1]))]
-            zlim = [min(zlim[0], np.min(outside_corner_locations[:, 2])),
-                    max(zlim[1], np.max(outside_corner_locations[:, 2]))]
-            ax.set_xlim(xlim)
-            ax.set_ylim(ylim)
-            ax.set_zlim(zlim)
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
-
-        # redraw the canvas
-        fig.canvas.draw()
-        # convert canvas to image
-        plt_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        plt_img = plt_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        # img is rgb, convert to opencv's default bgr
-        plt_img = cv2.cvtColor(plt_img, cv2.COLOR_RGB2BGR)
-
-        ratio = resized.shape[0] / plt_img.shape[0]
-        resized_plt = quick_resize(plt_img, ratio, plt_img.shape[1], plt_img.shape[0])
-
-        if len(cam_datas) == 2:
-            data = np.hstack([resized_plt, cam_datas[0], cam_datas[1]])
-        elif len(cam_datas) == 3:
-            blank_cam = np.ones(cam_datas[0].shape).astype(np.uint8)
-            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
-            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
-                              np.hstack([blank_plt, blank_cam, cam_datas[2]])])
-        else:
-            blank_plt = np.ones(resized_plt.shape).astype(np.uint8)
-            data = np.vstack([np.hstack([resized_plt, cam_datas[0], cam_datas[1]]),
-                              np.hstack([blank_plt, cam_datas[2], cam_datas[3]])])
+        if parameters['type']=='offline':
+            out_frame_list.append(data)
 
         cv2.imshow("cam", data)
         key = cv2.waitKey(1) & 0xFF
@@ -1330,18 +1162,33 @@ def verify_calibration_charuco_board(parameters, cams, intrinsic_params, extrins
             break
 
     if accept:
-        # Save videos with frames used for sparse bundle adjustment
-        for cam in cams:
-            vid_list = cam_list[cam.sn]
+        if parameters['type'] == 'online':
+            # Save videos
+            for cam in cams:
+                vid_list = cam_list[cam.sn]
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                filename = "cam{}.avi".format(cam.sn)
+                cam_vid = cv2.VideoWriter(
+                    os.path.join(out_dir, 'videos', 'verify', filename),
+                    fourcc,
+                    float(fps),
+                    f_size
+                )
+                [cam_vid.write(i) for i in vid_list]
+                cam_vid.release()
+        else:
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "verify_cam{}.avi".format(cam.sn)
+            filename = "verification.avi"
             cam_vid = cv2.VideoWriter(
-                os.paht.join(out_dir, 'videos', filename),
+                os.path.join(out_dir, 'videos', filename),
                 fourcc,
-                float(fps),
-                f_size
+                float(3),
+                (out_frame_list[0].shape[1], out_frame_list[0].shape[0])
             )
-            [cam_vid.write(i) for i in vid_list]
+            for frame in out_frame_list:
+                cv2.imshow('cam', frame)
+                key = cv2.waitKey(1) & 0xFF
+                cam_vid.write(frame)
             cam_vid.release()
 
     return accept
