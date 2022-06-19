@@ -8,8 +8,11 @@ import numpy as np
 import os.path as op
 
 from camera_io import init_camera_sources, shtr_spd
+from convert_all_video import convert
+from utilities import files
 from utilities.tools import makefolder, dump_the_dict
 
+from joblib import Parallel, delayed
 
 def dump_and_run(lists, path):
     frames = np.array(lists)
@@ -46,15 +49,19 @@ os.mkdir(out_dir)
 settings_file=os.path.join(out_dir, 'settings.json')
 dump_the_dict(settings_file, params)
 
+block=-1
+
 while True:
     data_raw = s.recv(buffer_size)
     data = data_raw.decode()
 
     if "start" in data:
-        name, status, timestamp = data.split("_")
+        name, block, trial, status, timestamp = data.split("_")
         print(name, "start")
 
         metadata_cam0 = {
+            "block": block,
+            "trial": trial,
             "frame_timestamp": [],
             "framerate": fps,
             "shutter_speed": shutter,
@@ -63,6 +70,8 @@ while True:
         }
 
         metadata_cam1 = {
+            "block": block,
+            "trial": trial,
             "frame_timestamp": [],
             "framerate": fps,
             "shutter_speed": shutter,
@@ -71,6 +80,8 @@ while True:
         }
 
         metadata_cam2 = {
+            "block": block,
+            "trial": trial,
             "frame_timestamp": [],
             "framerate": fps,
             "shutter_speed": shutter,
@@ -79,6 +90,8 @@ while True:
         }
 
         metadata_cam3 = {
+            "block": block,
+            "trial": trial,
             "frame_timestamp": [],
             "framerate": fps,
             "shutter_speed": shutter,
@@ -129,18 +142,23 @@ while True:
         stop = time.monotonic()
         print("recorded_in", stop - start, counter)
 
+        blk_dir = op.join(out_dir,'block_{}'.format(block))
+        makefolder(blk_dir)
+
         start_x = time.monotonic()
         total_rec = start_x - start
         for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
-            filename = "{}_cam{}_frames-{}_trial-{}_{}".format(
+            filename = "{}_block{}_trial{}_cam{}_frames-{}_trial-{}_{}".format(
                 name,
-                ix,
+                block,
+                trial,
+                params['cam_sns'][ix],
                 str(len(v)).zfill(4),
                 str(counter).zfill(3),
                 timestamp
             )
-            npy_path = op.join(out_dir, filename + ".npy")
-            json_path = op.join(out_dir, filename + ".json")
+            npy_path = op.join(blk_dir, filename + ".npy")
+            json_path = op.join(blk_dir, filename + ".json")
             dump_and_run(v, npy_path)
             with open(json_path, "w") as fp:
                 json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
@@ -149,6 +167,25 @@ while True:
         print("DATA DUMPED IN:", dump_time)
         message_dump = "dumped_{}_rec_{}".format(dump_time, total_rec)
         s.send(message_dump.encode())
+    if "convert" in data:
+        print(blk_dir)
+        start_x = time.monotonic()
+
+        files_npy = files.get_files(blk_dir, "", ".npy")[2]
+        files_npy.sort()
+        files_json = files.get_files(blk_dir, "", ".json")[2]
+        files_json.sort()
+
+        files_npy_json = list(zip(files_npy, files_json))
+
+        Parallel(n_jobs=-1)(delayed(convert)(file, json_file) for file, json_file in files_npy_json)
+
+        stop_x = time.monotonic()
+        convert_time = stop_x - start_x
+        print("DATA CONVERTED IN:", convert_time)
+        message_convert = "converted_{}".format(convert_time)
+        s.send(message_convert.encode())
+
     if "exit" in data:
         break
 
