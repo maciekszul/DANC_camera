@@ -32,7 +32,7 @@ cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, dis
 
 
 #TCP_IP = "169.254.226.95"
-TCP_IP = "100.1.1.3"
+TCP_IP = "192.168.2.140"
 TCP_PORT = 5005
 buffer_size = 20
 
@@ -56,8 +56,8 @@ while True:
     data = data_raw.decode()
 
     if "start" in data:
-        name, block, trial, status, timestamp = data.split("_")
-        print(name, "start")
+        block, trial, status, timestamp = data.split("_")
+        print(block, "-", trial, ": start")
 
         metadata_cam0 = {
             "block": block,
@@ -104,8 +104,6 @@ while True:
         cam2_l = []
         cam3_l = []
 
-        counter = 0
-
         start = time.monotonic()
         s.setblocking(0)
         while True:
@@ -114,7 +112,6 @@ while True:
                 data = data_raw.decode()
             except socket.error:
                 pass
-            counter += 1
 
 
             co0 = cams[0].next_frame()
@@ -140,7 +137,7 @@ while True:
                 break
 
         stop = time.monotonic()
-        print("recorded_in", stop - start, counter)
+        print("recorded_in", stop - start)
 
         blk_dir = op.join(out_dir,'block_{}'.format(block))
         makefolder(blk_dir)
@@ -148,13 +145,11 @@ while True:
         start_x = time.monotonic()
         total_rec = start_x - start
         for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
-            filename = "{}_block{}_trial{}_cam{}_frames-{}_trial-{}_{}".format(
-                name,
+            filename = "block-{}_trial-{}_cam-{}_frames-{}_{}".format(
                 block,
                 trial,
                 params['cam_sns'][ix],
                 str(len(v)).zfill(4),
-                str(counter).zfill(3),
                 timestamp
             )
             npy_path = op.join(blk_dir, filename + ".npy")

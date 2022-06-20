@@ -10,24 +10,6 @@ import os
 import json
 from joblib import Parallel, delayed
 
-
-try:
-    path = str(sys.argv[1])
-except:
-    print("incorrect path")
-    sys.exit()
-
-print(path)
-
-files_npy = files.get_files(path, "", ".npy")[2]
-files_npy.sort()
-files_json = files.get_files(path, "", ".json")[2]
-files_json.sort()
-
-files_npy_json = list(zip(files_npy, files_json))
-
-# print(files_npy_json)
-
 def compute_cb_gamma_luts(img, percent=1):
     img = cv2.cvtColor(img, cv2.COLOR_BAYER_BG2BGR)
     out_channels = []
@@ -60,7 +42,7 @@ def compute_cb_gamma_luts(img, percent=1):
 
     return cb_luts, gamma_lut
 
-def convert(file, json_file):
+def convert(path, file, json_file):
     filename = file.split("/")[-1].split(".")[0]
     raw = np.load(file, allow_pickle=True)
 
@@ -95,4 +77,22 @@ def convert(file, json_file):
     print(filename, "saved")
     os.remove(file)
 
-Parallel(n_jobs=-1)(delayed(convert)(file, json_file) for file, json_file in files_npy_json)
+
+if __name__=='main':
+    try:
+        path = str(sys.argv[1])
+    except:
+        print("incorrect path")
+        sys.exit()
+
+    print(path)
+
+    files_npy = files.get_files(path, "", ".npy")[2]
+    files_npy.sort()
+    files_json = files.get_files(path, "", ".json")[2]
+    files_json.sort()
+
+    files_npy_json = list(zip(files_npy, files_json))
+
+    # print(files_npy_json)
+    Parallel(n_jobs=-1)(delayed(convert)(path, file, json_file) for file, json_file in files_npy_json)
