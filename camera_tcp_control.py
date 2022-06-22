@@ -32,14 +32,16 @@ cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, dis
 
 
 #TCP_IP = "169.254.226.95"
-TCP_IP = "192.168.2.140"
+TCP_IP = "192.168.2.29"
 TCP_PORT = 5005
-buffer_size = 20
+buffer_size = 60
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((TCP_IP, TCP_PORT))
 message_connect = "connected"
 s.send(message_connect.encode())
+
+print('Ready')
 
 makefolder('./data')
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -173,7 +175,7 @@ while True:
 
         files_npy_json = list(zip(files_npy, files_json))
 
-        Parallel(n_jobs=-1)(delayed(convert)(file, json_file) for file, json_file in files_npy_json)
+        Parallel(n_jobs=-1)(delayed(convert)(blk_dir, file, json_file) for file, json_file in files_npy_json)
 
         stop_x = time.monotonic()
         convert_time = stop_x - start_x
