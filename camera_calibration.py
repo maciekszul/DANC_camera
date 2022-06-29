@@ -1272,15 +1272,15 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
             extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
+        # Collect data for SBA
+        if sba_data is None or parameters['type'] == 'offline':
+            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder, output_folder)
+            cv2.destroyAllWindows()
+
         # Rectification
         if rectify_params is None or parameters['type'] == 'offline':
             rectify_params = run_rectification(parameters, cams, extrinsic_params, intrinsic_params, calib_folder,
                                                output_folder)
-            cv2.destroyAllWindows()
-
-        # Collect data for SBA
-        if sba_data is None or parameters['type'] == 'offline':
-            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
         # Test calibration
