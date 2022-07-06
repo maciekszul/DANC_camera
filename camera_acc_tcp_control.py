@@ -43,8 +43,9 @@ class accThread(threading.Thread):
         self.connected = False
         self.shutdown_flag = False
 
-    def start_recording(self, block, trial, timestamp):
-        blk_dir = op.join(out_dir, 'block_{}'.format(block))
+    def start_recording(self, subject, block, trial, timestamp):
+        subj_dir = op.join(out_dir, 'sub_{}'.format(subject))
+        blk_dir = op.join(subj_dir, 'block_{}'.format(block))
         self.acc_fname = os.path.join(blk_dir,
                                  "block-{}_trial-{}_{}_acc-data.csv".format(block,
                                                                       str(trial).zfill(3),
@@ -153,10 +154,10 @@ if __name__=='__main__':
             data=''
 
         if "start" in data:
-            block, trial, status, timestamp = data.split("_")
-            print(block, "-", trial, ": start")
+            subject, block, trial, status, timestamp = data.split("_")
+            print(subject, "-", block, "-", trial, ": start")
 
-            thread1.start_recording(block, trial, timestamp)
+            thread1.start_recording(subject, block, trial, timestamp)
 
             metadata_cam0 = {
                 "block": block,
@@ -236,7 +237,9 @@ if __name__=='__main__':
             stop = time.monotonic()
             print("recorded_in", stop - start)
 
-            blk_dir = op.join(out_dir, 'block_{}'.format(block))
+            subj_dir = op.join(out_dir, 'sub_{}'.format(subject))
+            makefolder(subj_dir)
+            blk_dir = op.join(subj_dir, 'block_{}'.format(block))
             makefolder(blk_dir)
 
             thread1.stop_recording()

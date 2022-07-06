@@ -61,8 +61,8 @@ while True:
         data=''
 
     if "start" in data:
-        block, trial, status, timestamp = data.split("_")
-        print(block, "-", trial, ": start")
+        subject, block, trial, status, timestamp = data.split("_")
+        print(subject, "-", block, "-", trial, ": start")
 
         metadata_cam0 = {
             "block": block,
@@ -144,7 +144,8 @@ while True:
         stop = time.monotonic()
         print("recorded_in", stop - start)
 
-        blk_dir = op.join(out_dir,'block_{}'.format(block))
+        sub_dir = op.join(out_dir, 'sub_{}'.format(subject))
+        blk_dir = op.join(sub_dir,'block_{}'.format(block))
         makefolder(blk_dir)
 
         start_x = time.monotonic()
