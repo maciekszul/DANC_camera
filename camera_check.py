@@ -64,9 +64,14 @@ try:
             )
 
         cv2.imshow("cam", final_frame)
-        cv2.waitKey(1)
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+
 except KeyboardInterrupt:
-    cv2.destroyAllWindows()
+    pass
+
+cv2.destroyAllWindows()
 
 for cam in cams:
     cam.close()
