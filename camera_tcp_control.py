@@ -54,8 +54,11 @@ dump_the_dict(settings_file, params)
 block=-1
 
 while True:
-    data_raw = s.recv(buffer_size)
-    data = data_raw.decode()
+    try:
+        data_raw = s.recv(buffer_size)
+        data = data_raw.decode()
+    except socket.error:
+        data=''
 
     if "start" in data:
         block, trial, status, timestamp = data.split("_")
@@ -113,7 +116,7 @@ while True:
                 data_raw = s.recv(buffer_size)
                 data = data_raw.decode()
             except socket.error:
-                pass
+                data=''
 
 
             co0 = cams[0].next_frame()
