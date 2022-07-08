@@ -31,13 +31,10 @@ cams=init_camera_sources(params, fps, shutter, gain, sensor_feature_value=1, dis
                          img_data_format='XI_RAW8', auto_wb=False, counter_selector='XI_CNT_SEL_API_SKIPPED_FRAMES')
 
 
-#TCP_IP = "169.254.226.95"
-TCP_IP = "192.168.2.29"
-TCP_PORT = 5005
 buffer_size = 60
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((TCP_IP, TCP_PORT))
+s.connect((params['TCP_IP'], params['TCP_PORT']))
 message_connect = "connected"
 s.send(message_connect.encode())
 

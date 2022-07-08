@@ -23,9 +23,6 @@ fps = 200
 gain = 5
 shutter = shtr_spd(fps)
 
-#TCP_IP = "169.254.226.95"
-TCP_IP = "192.168.2.29"
-TCP_PORT = 5005
 buffer_size = 60
 
 IO_SAMP_CHAR_UUID = "6a80ff0c-b5a3-f393-e0a9-e50e24dcca9e"
@@ -140,7 +137,7 @@ if __name__=='__main__':
     print('Ready')
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((TCP_IP, TCP_PORT))
+    s.connect((params['TCP_IP'], params['TCP_PORT']))
     message_connect = "connected"
     s.send(message_connect.encode())
 
