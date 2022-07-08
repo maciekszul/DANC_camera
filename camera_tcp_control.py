@@ -187,4 +187,7 @@ while True:
     if "exit" in data:
         break
 
+for cam in cams:
+    cam.close()
+
 s.close()

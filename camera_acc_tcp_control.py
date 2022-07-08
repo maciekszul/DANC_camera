@@ -284,6 +284,9 @@ if __name__=='__main__':
         if "exit" in data:
             break
 
+    for cam in cams:
+        cam.close()
+
     s.close()
     thread1.shutdown()
 
