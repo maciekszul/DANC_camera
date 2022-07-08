@@ -166,6 +166,9 @@ while True:
         message_dump = "dumped_{}_rec_{}".format(dump_time, total_rec)
         s.send(message_dump.encode())
     if "convert" in data:
+        for cam in cams:
+            cam.stop()
+
         print(blk_dir)
         start_x = time.monotonic()
 
@@ -183,6 +186,9 @@ while True:
         print("DATA CONVERTED IN:", convert_time)
         message_convert = "converted_{}".format(convert_time)
         s.send(message_convert.encode())
+
+        for cam in cams:
+            cam.start()
 
     if "exit" in data:
         break

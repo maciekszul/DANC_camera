@@ -64,6 +64,12 @@ class CameraSource(FrameSource):
         cam_data = self.img.get_image_data_numpy()
         return cam_data
 
+    def stop(self):
+        self.cam.stop_acquisition()
+
+    def start(self):
+        self.cam.start_acquisition()
+
     def close(self):
         self.cam.stop_acquisition()
         self.cam.close_device()
