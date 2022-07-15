@@ -94,17 +94,16 @@ class accThread(threading.Thread):
                    break
 
                if self.recording:
-                   self.sdata = self.sdata.append(
-                            {
-                               'gyro_x': gyro[0, 0],
-                               'gyro_y': gyro[0, 1],
-                               'gyro_z': gyro[0, 2],
-                               'accel_x': accel[0, 0],
-                               'accel_y': accel[0, 1],
-                               'accel_z': accel[0, 2],
-                               'block': str(self.block),
-                               'trial': str(self.trial)
-                            }, ignore_index=True)
+                   self.sdata = pd.concat([self.sdata, pd.DataFrame.from_records([{
+                       'gyro_x': gyro[0, 0],
+                       'gyro_y': gyro[0, 1],
+                       'gyro_z': gyro[0, 2],
+                       'accel_x': accel[0, 0],
+                       'accel_y': accel[0, 1],
+                       'accel_z': accel[0, 2],
+                       'block': str(self.block),
+                       'trial': str(self.trial)
+                   }])])
         finally:
             self.gyro_acc.disable()
             self.dev.disconnect()
@@ -227,7 +226,7 @@ if __name__=='__main__':
                 metadata_cam3["frame_timestamp"].append(time.monotonic())
 
                 # print(counter)
-                if "stop" in data:
+                if "stop" in data or 'abort' in data:
                     s.setblocking(1)
                     break
 
@@ -243,19 +242,20 @@ if __name__=='__main__':
 
             start_x = time.monotonic()
             total_rec = start_x - start
-            for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
-                filename = "block-{}_trial-{}_cam-{}_frames-{}_{}".format(
-                    block,
-                    trial,
-                    params['cam_sns'][ix],
-                    str(len(v)).zfill(4),
-                    timestamp
-                )
-                npy_path = op.join(blk_dir, filename + ".npy")
-                json_path = op.join(blk_dir, filename + ".json")
-                dump_and_run(v, npy_path)
-                with open(json_path, "w") as fp:
-                    json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
+            if not 'abort' in data:
+                for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
+                    filename = "block-{}_trial-{}_cam-{}_frames-{}_{}".format(
+                        block,
+                        trial,
+                        params['cam_sns'][ix],
+                        str(len(v)).zfill(4),
+                        timestamp
+                    )
+                    npy_path = op.join(blk_dir, filename + ".npy")
+                    json_path = op.join(blk_dir, filename + ".json")
+                    dump_and_run(v, npy_path)
+                    with open(json_path, "w") as fp:
+                        json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
             stop_x = time.monotonic()
             dump_time = stop_x - start_x
             print("DATA DUMPED IN:", dump_time)
