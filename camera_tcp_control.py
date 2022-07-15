@@ -134,7 +134,7 @@ while True:
 
 
             # print(counter)
-            if "stop" in data:
+            if "stop" in data or 'abort' in data:
                 s.setblocking(1)
                 break
 
@@ -148,19 +148,20 @@ while True:
 
         start_x = time.monotonic()
         total_rec = start_x - start
-        for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
-            filename = "block-{}_trial-{}_cam-{}_frames-{}_{}".format(
-                block,
-                trial,
-                params['cam_sns'][ix],
-                str(len(v)).zfill(4),
-                timestamp
-            )
-            npy_path = op.join(blk_dir, filename + ".npy")
-            json_path = op.join(blk_dir, filename + ".json")
-            dump_and_run(v, npy_path)
-            with open(json_path, "w") as fp:
-                json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
+        if not 'abort' in data:
+            for ix, v in enumerate([cam0_l, cam1_l, cam2_l, cam3_l]):
+                filename = "block-{}_trial-{}_cam-{}_frames-{}_{}".format(
+                    block,
+                    trial,
+                    params['cam_sns'][ix],
+                    str(len(v)).zfill(4),
+                    timestamp
+                )
+                npy_path = op.join(blk_dir, filename + ".npy")
+                json_path = op.join(blk_dir, filename + ".json")
+                dump_and_run(v, npy_path)
+                with open(json_path, "w") as fp:
+                    json.dump([metadata_cam0, metadata_cam1, metadata_cam2, metadata_cam3][ix], fp)
         stop_x = time.monotonic()
         dump_time = stop_x - start_x
         print("DATA DUMPED IN:", dump_time)
