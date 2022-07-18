@@ -40,9 +40,9 @@ s.send(message_connect.encode())
 
 print('Ready')
 
-makefolder('./data')
+makefolder(params['output_dir'])
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-out_dir=os.path.join('./data',timestamp)
+out_dir=os.path.join(params['output_dir'],timestamp)
 os.mkdir(out_dir)
 
 settings_file=os.path.join(out_dir, 'settings.json')

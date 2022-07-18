@@ -121,9 +121,9 @@ if __name__=='__main__':
                                img_data_format='XI_RAW8', auto_wb=False,
                                counter_selector='XI_CNT_SEL_API_SKIPPED_FRAMES')
 
-    makefolder('./data')
+    makefolder(params['output_dir'])
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    out_dir=os.path.join('./data',timestamp)
+    out_dir=os.path.join(params['output_dir'],timestamp)
     os.mkdir(out_dir)
 
     settings_file = os.path.join(out_dir, 'settings.json')

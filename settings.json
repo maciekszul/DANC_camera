@@ -1,8 +1,9 @@
 {
   "cam_sns": ["08154551","08150951","08151951","08152151"],
   "primary_cam": "08154551",
-  "cam_locs": ["FR", "FL", "BR", "BL"],
+  "cam_locs": ["BR", "FL", "FR", "BL"],
   "type": "online",
   "TCP_IP": "192.168.2.29",
-  "TCP_PORT": 5005
+  "TCP_PORT": 5005,
+  "output_dir": "./data"
 }
