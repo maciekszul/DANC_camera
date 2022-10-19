@@ -47,6 +47,20 @@ def get_files(path, prefix, extension, wp=True):
 
     return (ext, prfx, intersect)
 
+def get_folders(path, prefix):
+    """
+    Returns lists of folders within folder with specific
+    prefix
+    path - folder address
+    prefix - string, beginning of the filename
+    """
+    prfx = []
+    (folders, files) = get_folders_files(path, wp=False)
+    for i in folders:
+        if i.startswith(prefix):
+            prfx.append(i)
+    return prfx
+
 def make_folder(path):
     if not os.path.exists(path):
         os.mkdir(path)
