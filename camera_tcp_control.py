@@ -141,7 +141,7 @@ while True:
         stop = time.monotonic()
         print("recorded_in", stop - start)
 
-        sub_dir = op.join(out_dir, 'sub_{}'.format(subject))
+        sub_dir = op.join(out_dir, subject)
         makefolder(sub_dir)
         blk_dir = op.join(sub_dir,'block_{}'.format(block))
         makefolder(blk_dir)
