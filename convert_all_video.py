@@ -78,7 +78,7 @@ def convert(path, file, json_file):
     os.remove(file)
 
 
-if __name__=='main':
+if __name__=='__main__':
     try:
         path = str(sys.argv[1])
     except:
@@ -87,12 +87,15 @@ if __name__=='main':
 
     print(path)
 
-    files_npy = files.get_files(path, "", ".npy")[2]
-    files_npy.sort()
-    files_json = files.get_files(path, "", ".json")[2]
-    files_json.sort()
+    sub_dir = files.get_folders(path,'sub-')[0]
+    blk_dirs=files.get_folders(op.join(path,sub_dir),'block_')
+    for blk_dir in blk_dirs:
+        files_npy = files.get_files(op.join(path,sub_dir,blk_dir), "", ".npy")[2]
+        files_npy.sort()
+        files_json = files.get_files(op.join(path,sub_dir,blk_dir), "", ".json")[2]
+        files_json.sort()
 
-    files_npy_json = list(zip(files_npy, files_json))
+        files_npy_json = list(zip(files_npy, files_json))
 
-    # print(files_npy_json)
-    Parallel(n_jobs=-1)(delayed(convert)(path, file, json_file) for file, json_file in files_npy_json)
+        # print(files_npy_json)
+        Parallel(n_jobs=-1)(delayed(convert)(op.join(path,sub_dir,blk_dir), file, json_file) for file, json_file in files_npy_json)

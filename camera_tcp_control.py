@@ -174,14 +174,20 @@ while True:
         print(blk_dir)
         start_x = time.monotonic()
 
-        files_npy = files.get_files(blk_dir, "", ".npy")[2]
-        files_npy.sort()
-        files_json = files.get_files(blk_dir, "", ".json")[2]
-        files_json.sort()
+        sub_dir = files.get_folders(out_dir, 'sub-')[0]
+        blk_dirs = files.get_folders(op.join(out_dir, sub_dir), 'block_')
+        for blk_dir in blk_dirs:
+            files_npy = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".npy")[2]
+            files_npy.sort()
+            files_json = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".json")[2]
+            files_json.sort()
 
-        files_npy_json = list(zip(files_npy, files_json))
+            files_npy_json = list(zip(files_npy, files_json))
 
-        Parallel(n_jobs=-1)(delayed(convert)(blk_dir, file, json_file) for file, json_file in files_npy_json)
+            # print(files_npy_json)
+            Parallel(n_jobs=-1)(
+                delayed(convert)(op.join(out_dir, sub_dir, blk_dir), file, json_file) for file, json_file in
+                files_npy_json)
 
         stop_x = time.monotonic()
         convert_time = stop_x - start_x
