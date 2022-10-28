@@ -171,7 +171,6 @@ while True:
         for cam in cams:
             cam.stop()
 
-        print(blk_dir)
         start_x = time.monotonic()
 
         sub_dir = files.get_folders(out_dir, 'sub-')[0]
@@ -184,10 +183,10 @@ while True:
 
             files_npy_json = list(zip(files_npy, files_json))
 
-            # print(files_npy_json)
+            pth=op.join(out_dir, sub_dir, blk_dir)
+            print(pth)
             Parallel(n_jobs=-1)(
-                delayed(convert)(op.join(out_dir, sub_dir, blk_dir), file, json_file) for file, json_file in
-                files_npy_json)
+                delayed(convert)(pth, file, json_file) for file, json_file in files_npy_json)
 
         stop_x = time.monotonic()
         convert_time = stop_x - start_x
