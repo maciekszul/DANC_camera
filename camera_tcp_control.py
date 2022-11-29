@@ -167,7 +167,7 @@ while True:
         print("DATA DUMPED IN:", dump_time)
         message_dump = "dumped_{}_rec_{}".format(dump_time, total_rec)
         s.send(message_dump.encode())
-    if "convert" in data:
+    elif "convert" in data:
         for cam in cams:
             cam.stop()
 
@@ -197,7 +197,11 @@ while True:
         for cam in cams:
             cam.start()
 
-    if "exit" in data:
+    elif "abort" in data:
+        message_dump = "dumped_-1_rec_-1"
+        s.send(message_dump.encode())
+
+    elif "exit" in data:
         break
 
 for cam in cams:
