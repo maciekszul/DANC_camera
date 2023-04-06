@@ -1,8 +1,13 @@
+import json
+import os
+import pickle
+import sys
 from time import time
 
 import matplotlib
 import numpy as np
 import cv2
+import yaml as yaml
 from cv2 import aruco
 from scipy.sparse import lil_matrix
 from scipy.optimize import least_squares
@@ -311,10 +316,13 @@ class DoubleCharucoBoard:
                 return self.board2
         return None
 
+    #
+    # Get the id of the corner in the other board
+    #
     def get_corresponding_corner_id(self, corner_id, cam_board):
-        #board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(self.n_square_corners)),
-        #                                                    (self.n_squares_height, self.n_squares_width)), 0),
-        #                                 (self.n_square_corners,))
+
+        # This is the order of the corners in the second board
+        #board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(self.n_square_corners)), ((self.n_squares_height-1), (self.n_squares_width-1))), 0), (self.n_square_corners,))
 
         board2_matching_ids=np.array(range(self.n_square_corners))
         board2_corner_id=board2_matching_ids[corner_id]
@@ -466,8 +474,44 @@ class ArucoCube:
                 [origin_location[0, 2], z_location[0, 2]], c='b')
 
 
+# Convert calibration to Jarvis format
+def convert_calibration_to_jarvis(calibration_path):
+
+    json_file= os.path.join(calibration_path, "settings.json")
+    with open(json_file) as settings_file:
+        params = json.load(settings_file)
+
+    # Load intrinsic parameters
+    handle = open(os.path.join(calibration_path, "intrinsic_params.pickle"), 'rb')
+    intrinsic_params = pickle.load(handle)
+    handle.close()
+
+    # Load extrinsic parameters
+    handle = open(os.path.join(calibration_path, "extrinsic_params.pickle"), 'rb')
+    extrinsic_params = pickle.load(handle)
+    handle.close()
+
+    # For each camera in params
+    for cam_sn in params["cam_sns"]:
+        # yaml file to write to
+        yaml_file = os.path.join(calibration_path, "cam{}.yaml".format(cam_sn))
+        intrinsic_matrix = intrinsic_params[cam_sn]["k"]
+        distortion_coefficients = intrinsic_params[cam_sn]["d"]
+        rotation_matrix = extrinsic_params[cam_sn]["r"]
+        translation_vector = extrinsic_params[cam_sn]["t"]
+        yaml_data={
+            'intrinsicMatrix': intrinsic_matrix.astype(np.float64).T,
+            'distortionCoefficients': distortion_coefficients.astype(np.float64),
+            'R': rotation_matrix.astype(np.float64).T,
+            'T': translation_vector.astype(np.float64)*1000
+        }
+
+        cv_file = cv2.FileStorage(yaml_file, cv2.FILE_STORAGE_WRITE)
+        for key in yaml_data:
+            cv_file.write(key, yaml_data[key])
+        # Note you *release*; you don't close() a FileStorage object
+        cv_file.release()
+
 
 if __name__ == '__main__':
-    board = DoubleCharucoBoard()
-    board.plot()
-    board.save()
+    convert_calibration_to_jarvis(sys.argv[1])
