@@ -30,14 +30,6 @@ shutter = shtr_spd(fps)
 gain = 5
 f_size = (1280, 1024)
 
-dict_idx = {
-    0: 8, 1: 7, 2: 6, 3: 4, 4: 4, 5: 3, 6: 2, 7: 1, 8: 0, 9: 17, 10: 16, 11: 15, 12: 14, 13: 13, 14: 12,
-    15: 11, 16: 10, 17: 9, 18: 26, 19: 25, 20: 24, 21: 23, 22: 22,
-    23: 21, 24: 20, 25: 19, 26: 18, 27: 35, 28: 34, 29: 33, 30: 32, 31: 31, 32: 30, 33: 29, 34: 28, 35: 27,
-    36: 44, 37: 43, 38: 42, 39: 41, 40: 40, 41: 39, 42: 38,
-    43: 37, 44: 36, 45: 53, 46: 52, 47: 51, 48: 50, 49: 49, 50: 48, 51: 47, 52: 46, 53: 45
-}
-
 
 def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_dir, out_dir):
     """
@@ -111,10 +103,8 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                                                                                               gray, cam_board)
 
                     if ret > 0:
-                        if min(cam_board.ids) > 34:
-                            for idx in range(0, len(charuco_ids)):
-                                if charuco_ids[idx][0] in dict_idx.keys():
-                                    charuco_ids[idx][0] = dict_idx.get(charuco_ids[idx][0])
+                        for idx in range(0, len(charuco_ids)):
+                            charuco_ids[idx][0] = board.get_corresponding_corner_id(charuco_ids[idx][0], cam_board)
 
                         charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
                                                                subcorner_term_crit)
@@ -143,15 +133,12 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
                                 pts = []
                                 ids = []
                                 for corner_id in range(board.n_square_corners):
-                                    c_id = board.get_corresponding_corner_id(corner_id, cam_board)
-                                    if min(cam_board.ids) > 34:
-                                        if c_id in dict_idx.keys():
-                                            c_id = dict_idx.get(c_id)
+                                    corner_id = board.get_corresponding_corner_id(corner_id, cam_board)
 
-                                    if len(np.where(charuco_ids == c_id)[0]):
-                                        c_idx = np.where(charuco_ids == c_id)[0][0]
+                                    if len(np.where(charuco_ids == corner_id)[0]):
+                                        c_idx = np.where(charuco_ids == corner_id)[0][0]
                                         pts.append(charuco_corners_sub[c_idx, :, :])
-                                        ids.append(c_id)
+                                        ids.append(corner_id)
                                 cam_corners[cam.sn] = pts
                                 cam_corner_ids[cam.sn] = np.array(ids)
 
@@ -221,8 +208,8 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
     # Convert to numpy arrays
     points_2d = np.squeeze(np.array(points_2d, dtype=np.float32))
     points_3d = np.squeeze(np.array(points_3d, dtype=np.float32))
-    point_3d_indices = np.array(point_3d_indices, dtype=np.int)
-    camera_indices = np.array(camera_indices, dtype=np.int)
+    point_3d_indices = np.array(point_3d_indices, dtype=int)
+    camera_indices = np.array(camera_indices, dtype=int)
 
     # Save data for offline sparse bundle adjustment
     filename = "sba_data.pickle"
@@ -423,10 +410,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
             [ret1, charuco_corners1, charuco_ids1] = cv2.aruco.interpolateCornersCharuco(marker_corners1, marker_ids1,
                                                                                          gray1, cam1_board)
             if ret1 > 0:
-                if min(cam1_board.ids) > 34:
-                    for idx in range(0, len(charuco_ids1)):
-                        if charuco_ids1[idx][0] in dict_idx.keys():
-                            charuco_ids1[idx][0] = dict_idx.get(charuco_ids1[idx][0])
+                for idx in range(0, len(charuco_ids1)):
+                    charuco_ids1[idx][0] = board.get_corresponding_corner_id(charuco_ids1[idx][0], cam1_board)
 
                 charuco_corners_sub1 = cv2.cornerSubPix(gray1, charuco_corners1, (11, 11), (-1, -1),
                                                         subcorner_term_crit)
@@ -441,10 +426,8 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                                                                                          gray2, cam2_board)
 
             if ret2 > 0:
-                if min(cam2_board.ids) > 34:
-                    for idx in range(0, len(charuco_ids2)):
-                        if charuco_ids2[idx][0] in dict_idx.keys():
-                            charuco_ids2[idx][0] = dict_idx.get(charuco_ids2[idx][0])
+                for idx in range(0, len(charuco_ids2)):
+                    charuco_ids2[idx][0] = board.get_corresponding_corner_id(charuco_ids2[idx][0], cam2_board)
 
                 charuco_corners_sub2 = cv2.cornerSubPix(gray2, charuco_corners2, (11, 11), (-1, -1),
                                                         subcorner_term_crit)
@@ -487,17 +470,15 @@ def extrinsic_cam_calibration(parameters, cam1, cam2, intrinsic_params, extrinsi
                 pts2 = []
                 n_pts = 0
                 for cam_corner_id in range(board.n_square_corners):
-                    cam1_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam1_board)
-                    cam2_corner_id = board.get_corresponding_corner_id(cam_corner_id, cam2_board)
 
-                    if len(np.where(charuco_ids1 == cam1_corner_id)[0]) and \
-                            len(np.where(charuco_ids2 == cam2_corner_id)[0]):
-                        corners.append(cam1_board.chessboardCorners[cam1_corner_id, :])
+                    if len(np.where(charuco_ids1 == cam_corner_id)[0]) and \
+                            len(np.where(charuco_ids2 == cam_corner_id)[0]):
+                        corners.append(cam1_board.chessboardCorners[cam_corner_id, :])
 
-                        c1_idx = np.where(charuco_ids1 == cam1_corner_id)[0][0]
+                        c1_idx = np.where(charuco_ids1 == cam_corner_id)[0][0]
                         pts1.append(charuco_corners_sub1[c1_idx, :, :])
 
-                        c2_idx = np.where(charuco_ids2 == cam2_corner_id)[0][0]
+                        c2_idx = np.where(charuco_ids2 == cam_corner_id)[0][0]
                         pts2.append(charuco_corners_sub2[c2_idx, :, :])
                         n_pts = n_pts + 1
 
