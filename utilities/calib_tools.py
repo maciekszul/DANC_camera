@@ -316,23 +316,6 @@ class DoubleCharucoBoard:
                 return self.board2
         return None
 
-    #
-    # Get the id of the corner in the other board
-    #
-    # def get_corresponding_corner_id(self, corner_id, cam_board):
-    #
-    #     # This is the order of the corners in the second board
-    #     #board2_matching_ids = np.reshape(np.flip(np.reshape(np.array(range(self.n_square_corners)), ((self.n_squares_height-1), (self.n_squares_width-1))), 0), (self.n_square_corners,))
-    #
-    #     board2_matching_ids=np.array(range(self.n_square_corners))
-    #     board2_corner_id=board2_matching_ids[corner_id]
-    #     if cam_board is not None:
-    #         if cam_board.ids[0] == 0:
-    #             return corner_id
-    #         else:
-    #             return board2_corner_id
-    #     return None
-
     def get_corresponding_corner_id(self, corner_id, detected_board):
 
         if detected_board is not None:
