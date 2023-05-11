@@ -31,42 +31,24 @@ gain = 5
 f_size = (1280, 1024)
 
 
-def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_dir, out_dir):
+def collect_training_data(cams, out_dir):
     """
-    Collect data for sparse bundle adjustment
+    Collect data for marker tracking training
     :param parameters: Acquisition parameters
     :param cams: list of camera objects
-    :param intrinsic_params: intrinsic calibration parameters for each camera
-    :param extrinsic_params: extrinsic calibration parameters for each camera
     """
-
-    if parameters['type'] == 'offline':
-        cams = init_file_sources(parameters, os.path.join(calib_dir, 'videos', 'sba'))
 
     # Initialize array
     cam_list = {}
     for cam in cams:
         cam_list[cam.sn] = []
-    points_3d = []
-    point_3d_indices = []
-    points_2d = []
-    camera_indices = []
 
-    board = DoubleCharucoBoard()
-
-    print('Accept SBA data (y/n)?')
-
-    # Get corresponding points between images
-    point_idx_counter = 0
+    print('Accept training data (y/n)?')
 
     # Acquire enough good frames
     while True:
         # Frames for each camera
         cam_datas = []
-        vcam_datas = []
-        # Chessboard corners for each camera
-        cam_corners = {}
-        cam_corner_ids = {}
 
         # Go through each camera
         video_finished = True
@@ -83,111 +65,13 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
         if not video_finished:
             for cam_idx, cam in enumerate(cams):
                 cam_data = cam_datas[cam_idx]
-                vcam_data = np.copy(cam_data)[:, :, :3].astype(np.uint8)
-
-                k = intrinsic_params[cam.sn]['k']
-                d = intrinsic_params[cam.sn]['d']
-
-                # Convert to greyscale for chess board detection
-                gray = cv2.cvtColor(cam_data, cv2.COLOR_BGR2GRAY)
-
-                # Find the chess board corners - fast checking
-                [marker_corners, marker_ids, _] = cv2.aruco.detectMarkers(gray, board.dictionary,
-                                                                          parameters=detect_parameters)
-
-                cam_board = board.get_detected_board(marker_ids)
-
-                if cam_board is not None and len(marker_corners) > 0:
-
-                    [ret, charuco_corners, charuco_ids] = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids,
-                                                                                              gray, cam_board)
-
-                    if ret > 0:
-                        for idx in range(0, len(charuco_ids)):
-                            charuco_ids[idx][0] = board.get_corresponding_corner_id(charuco_ids[idx][0], cam_board)
-
-                        charuco_corners_sub = cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
-                                                               subcorner_term_crit)
-
-                        vcam_data = cv2.rectangle(vcam_data, (5, 5), (f_size[0] - 5, f_size[1] - 5), (0, 255, 0), 5)
-                        vcam_data = cv2.aruco.drawDetectedMarkers(vcam_data.copy(), marker_corners, marker_ids)
-                        vcam_data = cv2.aruco.drawDetectedCornersCharuco(vcam_data.copy(), charuco_corners_sub,
-                                                                         charuco_ids)
-
-                        if ret > 20:
-
-                            # Estimate the posture of the charuco board, which is a construction of 3D space based on the
-                            # 2D video
-                            pose, rvec, tvec = aruco.estimatePoseCharucoBoard(
-                                charucoCorners=charuco_corners_sub,
-                                charucoIds=charuco_ids,
-                                board=cam_board,
-                                cameraMatrix=k,
-                                distCoeffs=d,
-                                rvec=None,
-                                tvec=None
-                            )
-                            if pose:
-                                vcam_data = aruco.drawAxis(vcam_data, k, d, rvec, tvec, board.square_length)
-
-                                pts = []
-                                ids = []
-                                for corner_id in range(board.n_square_corners):
-                                    corner_id = board.get_corresponding_corner_id(corner_id, cam_board)
-
-                                    if len(np.where(charuco_ids == corner_id)[0]):
-                                        c_idx = np.where(charuco_ids == corner_id)[0][0]
-                                        pts.append(charuco_corners_sub[c_idx, :, :])
-                                        ids.append(corner_id)
-                                cam_corners[cam.sn] = pts
-                                cam_corner_ids[cam.sn] = np.array(ids)
 
                 cam_list[cam.sn].append(cam_data[:, :, :3])
-
-                # Num frames
-                vcam_data = cv2.putText(vcam_data, '%d frames' % len(cam_list[cam.sn]), (10, 55), cv2.FONT_HERSHEY_SIMPLEX,
-                                        2, (0, 255, 0), 2)
-
-                # Resize for display
-                resized = quick_resize(vcam_data, 0.5, f_size[0], f_size[1])
-                vcam_datas.append(resized)
-
-            # If chessboard visible in more than one camera
-            for board_id in range(board.n_square_corners):
-                visible_cams = []
-                for cam in cams:
-                    if cam.sn in cam_corner_ids and len(np.where(cam_corner_ids[cam.sn] == board_id)[0]):
-                        visible_cams.append(cam.sn)
-
-                if len(visible_cams) > 1:
-                    # Add 3d and 3d points to list
-                    c = {}
-                    for cam_idx, cam in enumerate(cams):
-                        if cam.sn in visible_cams:
-                            c_idx = np.where(cam_corner_ids[cam.sn] == board_id)[0][0]
-                            points_2d.append(cam_corners[cam.sn][c_idx])
-                            point_3d_indices.append(point_idx_counter)
-                            camera_indices.append(cam_idx)
-                            c[cam.sn] = cam_corners[cam.sn][c_idx]
-
-                    point_3d_est, pairs_used = locate(visible_cams, c, intrinsic_params, extrinsic_params)
-
-                    points_3d.append(point_3d_est)
-                    point_idx_counter += 1
 
         else:
             break
 
-        # Show camera images
-        if len(vcam_datas) == 1:
-            data = vcam_datas[0]
-        elif len(vcam_datas) == 2:
-            data = np.hstack([vcam_datas[0], vcam_datas[1]])
-        elif len(vcam_datas) == 3:
-            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[2]])])
-        else:
-            data = np.vstack([np.hstack([vcam_datas[0], vcam_datas[1]]), np.hstack([vcam_datas[2], vcam_datas[3]])])
-        cv2.imshow("cam", data)
+        cv2.imshow("cam", np.zeros((10,10)))
         key = cv2.waitKey(1) & 0xFF
 
         # Quit if enough frames
@@ -199,47 +83,20 @@ def collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib
             cam_list = {}
             for cam in cams:
                 cam_list[cam.sn] = []
-            points_3d = []
-            point_3d_indices = []
-            points_2d = []
-            camera_indices = []
-            point_idx_counter = 0
 
-    # Convert to numpy arrays
-    points_2d = np.squeeze(np.array(points_2d, dtype=np.float32))
-    points_3d = np.squeeze(np.array(points_3d, dtype=np.float32))
-    point_3d_indices = np.array(point_3d_indices, dtype=int)
-    camera_indices = np.array(camera_indices, dtype=int)
-
-    # Save data for offline sparse bundle adjustment
-    filename = "sba_data.pickle"
-    pickle.dump(
-        {
-            'points_2d': points_2d,
-            'points_3d': points_3d,
-            'points_3d_indices': point_3d_indices,
-            'camera_indices': camera_indices
-        },
-        open(
-            os.path.join(out_dir, filename),
-            "wb",
-        ),
-    )
-
-    if parameters['type'] == 'online':
-        # Save videos with frames used for sparse bundle adjustment
-        for cam in cams:
-            vid_list = cam_list[cam.sn]
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            filename = "cam{}.avi".format(cam.sn)
-            cam_vid = cv2.VideoWriter(
-                os.path.join(out_dir, 'videos', 'sba', filename),
-                fourcc,
-                float(fps),
-                f_size
-            )
-            [cam_vid.write(i) for i in vid_list]
-            cam_vid.release()
+    # Save videos with frames used for sparse bundle adjustment
+    for cam in cams:
+        vid_list = cam_list[cam.sn]
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        filename = "cam{}.avi".format(cam.sn)
+        cam_vid = cv2.VideoWriter(
+            os.path.join(out_dir, 'videos', 'training', filename),
+            fourcc,
+            float(fps),
+            f_size
+        )
+        [cam_vid.write(i) for i in vid_list]
+        cam_vid.release()
 
 
 def run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_dir, out_dir):
@@ -1188,7 +1045,7 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
     intrinsic_params = None
     extrinsic_params = None
     rectify_params = None
-    sba_data = None
+    training_data = None
 
     if calib_folder is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1199,7 +1056,7 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
         os.mkdir(os.path.join(calib_folder, 'videos', 'intrinsic'))
         os.mkdir(os.path.join(calib_folder, 'videos', 'extrinsic'))
         os.mkdir(os.path.join(calib_folder, 'videos', 'rectify'))
-        os.mkdir(os.path.join(calib_folder, 'videos', 'sba'))
+        os.mkdir(os.path.join(calib_folder, 'videos', 'training'))
         os.mkdir(os.path.join(calib_folder, 'videos', 'verify'))
     else:
         try:
@@ -1219,13 +1076,6 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
         try:
             handle = open(os.path.join(calib_folder, "rectify_params.pickle"), 'rb')
             rectify_params = pickle.load(handle)
-            handle.close()
-        except:
-            pass
-
-        try:
-            handle = open(os.path.join(calib_folder, "sba_data.pickle"), 'rb')
-            sba_data = pickle.load(handle)
             handle.close()
         except:
             pass
@@ -1253,9 +1103,9 @@ def run_calibration(parameters, calib_folder=None, output_folder=None):
             extrinsic_params = run_extrinsic_calibration(parameters, cams, intrinsic_params, calib_folder, output_folder)
             cv2.destroyAllWindows()
 
-        # Collect data for SBA
-        if sba_data is None or parameters['type'] == 'offline':
-            collect_sba_data(parameters, cams, intrinsic_params, extrinsic_params, calib_folder, output_folder)
+        # Collect data for training
+        if parameters['type'] == 'online':
+            collect_training_data(cams, output_folder)
             cv2.destroyAllWindows()
 
         # Rectification
