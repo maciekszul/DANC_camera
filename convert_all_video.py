@@ -8,6 +8,8 @@ import sys
 import os.path as op
 import os
 import json
+import shutil
+
 from joblib import Parallel, delayed
 
 def compute_cb_gamma_luts(img, percent=1):
@@ -79,23 +81,26 @@ def convert(path, file, json_file):
 
 
 if __name__=='__main__':
-    try:
-        path = str(sys.argv[1])
-    except:
-        print("incorrect path")
-        sys.exit()
+    # opening a json file
+    with open('settings.json') as settings_file:
+        params = json.load(settings_file)
 
-    print(path)
+    recording_dirs = files.get_folders_files(params['output_dir'])[0]
 
-    sub_dir = files.get_folders(path,'sub-')[0]
-    blk_dirs=files.get_folders(op.join(path,sub_dir),'block_')
-    for blk_dir in blk_dirs:
-        files_npy = files.get_files(op.join(path,sub_dir,blk_dir), "", ".npy")[2]
-        files_npy.sort()
-        files_json = files.get_files(op.join(path,sub_dir,blk_dir), "", ".json")[2]
-        files_json.sort()
+    for recording_dir in recording_dirs:
+        sub_dir = files.get_folders(recording_dir, 'sub-')[0]
+        blk_dirs = files.get_folders(op.join(recording_dir, sub_dir), 'block_')
+        for blk_dir in blk_dirs:
+            files_npy = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".npy")[2]
+            files_npy.sort()
+            files_json = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".json")[2]
+            files_json.sort()
 
-        files_npy_json = list(zip(files_npy, files_json))
+            files_npy_json = list(zip(files_npy, files_json))
 
-        # print(files_npy_json)
-        Parallel(n_jobs=-1)(delayed(convert)(op.join(path,sub_dir,blk_dir), file, json_file) for file, json_file in files_npy_json)
+            pth=op.join(recording_dir, sub_dir, blk_dir)
+            print(pth)
+            Parallel(n_jobs=-1)(
+                delayed(convert)(pth, file, json_file) for file, json_file in files_npy_json)
+        shutil.move(recording_dir, params['save_dir'])
+

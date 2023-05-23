@@ -41,9 +41,11 @@ s.send(message_connect.encode())
 print('Ready')
 
 makefolder(params['output_dir'])
+makefolder(params['save_dir'])
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 out_dir=os.path.join(params['output_dir'],timestamp)
 os.mkdir(out_dir)
+#os.mkdir(params['save_dir'])
 
 settings_file=os.path.join(out_dir, 'settings.json')
 dump_the_dict(settings_file, params)
@@ -57,6 +59,7 @@ while True:
     except socket.error:
         data=''
 
+    # Start command
     if "start" in data:
         subject, block, trial, status, timestamp = data.split("_")
         print(subject, "-", block, "-", trial, ": start")
@@ -167,40 +170,45 @@ while True:
         print("DATA DUMPED IN:", dump_time)
         message_dump = "dumped_{}_rec_{}".format(dump_time, total_rec)
         s.send(message_dump.encode())
-    elif "convert" in data:
-        for cam in cams:
-            cam.stop()
 
-        start_x = time.monotonic()
+    # Convert command - very end, after all blocks
+    #elif "convert" in data:
+    #    for cam in cams:
+    #        cam.stop()
+    #
+    #    start_x = time.monotonic()
+    #
+    #    sub_dir = files.get_folders(out_dir, 'sub-')[0]
+    #    blk_dirs = files.get_folders(op.join(out_dir, sub_dir), 'block_')
+    #    for blk_dir in blk_dirs:
+    #        files_npy = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".npy")[2]
+    #        files_npy.sort()
+    #        files_json = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".json")[2]
+    #        files_json.sort()
+    #
+    #        files_npy_json = list(zip(files_npy, files_json))
+    #
+    #        pth=op.join(out_dir, sub_dir, blk_dir)
+    #        print(pth)
+    #        Parallel(n_jobs=-1)(
+    #            delayed(convert)(pth, file, json_file) for file, json_file in files_npy_json)
+    #    shutil.move(out_dir, params['save_dir'])
+    #
+    #    stop_x = time.monotonic()
+    #    convert_time = stop_x - start_x
+    #    print("DATA CONVERTED IN:", convert_time)
+    #    message_convert = "converted_{}".format(convert_time)
+    #    s.send(message_convert.encode())
+    #
+    #    for cam in cams:
+    #        cam.start()
 
-        sub_dir = files.get_folders(out_dir, 'sub-')[0]
-        blk_dirs = files.get_folders(op.join(out_dir, sub_dir), 'block_')
-        for blk_dir in blk_dirs:
-            files_npy = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".npy")[2]
-            files_npy.sort()
-            files_json = files.get_files(op.join(out_dir, sub_dir, blk_dir), "", ".json")[2]
-            files_json.sort()
-
-            files_npy_json = list(zip(files_npy, files_json))
-
-            pth=op.join(out_dir, sub_dir, blk_dir)
-            print(pth)
-            Parallel(n_jobs=-1)(
-                delayed(convert)(pth, file, json_file) for file, json_file in files_npy_json)
-
-        stop_x = time.monotonic()
-        convert_time = stop_x - start_x
-        print("DATA CONVERTED IN:", convert_time)
-        message_convert = "converted_{}".format(convert_time)
-        s.send(message_convert.encode())
-
-        for cam in cams:
-            cam.start()
-
+    # Abort command
     elif "abort" in data:
         message_dump = "dumped_-1_rec_-1"
         s.send(message_dump.encode())
 
+    # Exit
     elif "exit" in data:
         break
 
