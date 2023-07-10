@@ -71,7 +71,7 @@ def collect_training_data(cams, out_dir):
         else:
             break
 
-        cv2.imshow("cam", np.zeros((10,10)))
+        cv2.imshow("collecting training data", np.zeros((10,10)))
         key = cv2.waitKey(1) & 0xFF
 
         # Quit if enough frames
