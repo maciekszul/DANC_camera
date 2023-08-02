@@ -11,6 +11,7 @@ from camera_io import init_camera_sources, shtr_spd
 from convert_all_video import convert
 from utilities import files
 from utilities.tools import makefolder, dump_the_dict
+import psutil
 
 from joblib import Parallel, delayed
 
@@ -40,12 +41,11 @@ s.send(message_connect.encode())
 
 print('Ready')
 
-makefolder(params['output_dir'])
-makefolder(params['save_dir'])
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-out_dir=os.path.join(params['output_dir'],timestamp)
+out_dir=os.path.join(params['output_dir1'],timestamp)
+if psutil.disk_usage(params['output_dir1']).percent>=params['disk_space_thresh']:
+    out_dir=os.path.join(params['output_dir2'],timestamp)
 os.mkdir(out_dir)
-#os.mkdir(params['save_dir'])
 
 settings_file=os.path.join(out_dir, 'settings.json')
 dump_the_dict(settings_file, params)
@@ -143,6 +143,10 @@ while True:
 
         stop = time.monotonic()
         print("recorded_in", stop - start)
+
+        if psutil.disk_usage(params['output_dir1']).percent>=params['disk_space_thresh']:
+            out_dir=os.path.join(params['output_dir2'],timestamp)
+            makefolder(out_dir)
 
         sub_dir = op.join(out_dir, subject)
         makefolder(sub_dir)

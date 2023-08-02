@@ -9,6 +9,8 @@ import os.path as op
 import os
 import json
 import shutil
+import psutil
+from utilities.tools import makefolder
 
 from joblib import Parallel, delayed
 
@@ -44,7 +46,7 @@ def compute_cb_gamma_luts(img, percent=1):
 
     return cb_luts, gamma_lut
 
-def convert(path, file, json_file):
+def convert(path, file, json_file, out_path):
     filename = file.split("/")[-1].split(".")[0]
     raw = np.load(file, allow_pickle=True)
 
@@ -56,7 +58,7 @@ def convert(path, file, json_file):
     f_size = (1280, 1024)
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     vid = cv2.VideoWriter(
-        "{}/{}.avi".format(path, filename),
+        "{}/{}.avi".format(out_path, filename),
         fourcc,
         float(200),
         f_size
@@ -78,16 +80,20 @@ def convert(path, file, json_file):
     vid.release()
     print(filename, "saved")
     os.remove(file)
+    shutil.move(json_file, op.join(out_path, json_file.split('/')[-1]))
 
 
 if __name__=='__main__':
     # opening a json file
     with open('settings.json') as settings_file:
         params = json.load(settings_file)
+    assert(psutil.disk_usage(params['output_dir1']).percent<75)
 
-    recording_dirs = files.get_folders_files(params['output_dir'])[0]
+    recording_dirs = files.get_folders_files(params['output_dir1'])[0]
+    recording_dirs.extend(files.get_folders_files(params['output_dir2'])[0])
 
     for recording_dir in recording_dirs:
+        print(recording_dir)
         sub_dir = files.get_folders(recording_dir, 'sub-')[0]
         blk_dirs = files.get_folders(op.join(recording_dir, sub_dir), 'block_')
         for blk_dir in blk_dirs:
@@ -99,8 +105,12 @@ if __name__=='__main__':
             files_npy_json = list(zip(files_npy, files_json))
 
             pth=op.join(recording_dir, sub_dir, blk_dir)
-            print(pth)
+            makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1]))
+            makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir))
+            out_path=op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir, blk_dir)
+            makefolder(out_path)
             Parallel(n_jobs=-1)(
-                delayed(convert)(pth, file, json_file) for file, json_file in files_npy_json)
-        shutil.move(recording_dir, params['save_dir'])
+                delayed(convert)(pth, file, json_file, out_path) for file, json_file in files_npy_json)
+        shutil.rmtree(recording_dir)
+        #shutil.move(recording_dir, params['save_dir'])
 
