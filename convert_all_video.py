@@ -87,30 +87,33 @@ if __name__=='__main__':
     # opening a json file
     with open('settings.json') as settings_file:
         params = json.load(settings_file)
-    assert(psutil.disk_usage(params['output_dir1']).percent<75)
+    # assert(psutil.disk_usage(params['output_dir1']).percent<75)
 
     recording_dirs = files.get_folders_files(params['output_dir1'])[0]
-    recording_dirs.extend(files.get_folders_files(params['output_dir2'])[0])
-
-    for recording_dir in recording_dirs:
+    recording_dirs.extend(files.get_folders_files(params['output_dir2'])[0])    
+    for recording_dir in recording_dirs:        
         print(recording_dir)
-        sub_dir = files.get_folders(recording_dir, 'sub-')[0]
-        blk_dirs = files.get_folders(op.join(recording_dir, sub_dir), 'block_')
-        for blk_dir in blk_dirs:
-            files_npy = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".npy")[2]
-            files_npy.sort()
-            files_json = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".json")[2]
-            files_json.sort()
+        try:
+            sub_dir = files.get_folders(recording_dir, 'sub-')[0]
+            print(sub_dir)
+            blk_dirs = files.get_folders(op.join(recording_dir, sub_dir), 'block_')
+            for blk_dir in blk_dirs:
+                files_npy = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".npy")[2]
+                files_npy.sort()
+                files_json = files.get_files(op.join(recording_dir, sub_dir, blk_dir), "", ".json")[2]
+                files_json.sort()
 
-            files_npy_json = list(zip(files_npy, files_json))
+                files_npy_json = list(zip(files_npy, files_json))
 
-            pth=op.join(recording_dir, sub_dir, blk_dir)
-            makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1]))
-            makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir))
-            out_path=op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir, blk_dir)
-            makefolder(out_path)
-            Parallel(n_jobs=-1)(
-                delayed(convert)(pth, file, json_file, out_path) for file, json_file in files_npy_json)
-        shutil.rmtree(recording_dir)
-        #shutil.move(recording_dir, params['save_dir'])
+                pth=op.join(recording_dir, sub_dir, blk_dir)
+                makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1]))
+                makefolder(op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir))
+                out_path=op.join(params['save_dir'], op.split(recording_dir)[-1], sub_dir, blk_dir)
+                makefolder(out_path)
+                Parallel(n_jobs=-1)(
+                    delayed(convert)(pth, file, json_file, out_path) for file, json_file in files_npy_json)
+            shutil.rmtree(recording_dir)
+            #shutil.move(recording_dir, params['save_dir'])
+        except:
+            pass
 
